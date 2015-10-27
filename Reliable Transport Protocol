@@ -1,10 +1,20 @@
 -  Is your protocol non-pipelined (such as Stop-and-Wait) or pipelined (such as Selective Repeat)? 
 	- My protocol is pipelined, like Selective Repeat.
 -  How does your protocol handle lost packets? 
-	- The sender sets a timer for each packet.
--  How does your protocol handle corrupted packets? 
+	- The sender sets a logical timer for each packet. In the event of timeout, the timer's corresponding packet is retransmitted.
+-  How does your protocol handle corrupted packets?
+	- Our protocol redundantly implements the UDP checksum and drops packets in the event that they are corrupted.
 -  How does your protocol handle duplicate packets? 
+	- In the event the receiver gets a duplicate packet, it sends another ACK.
 -  How does your protocol handle out-of-order packets? 
+	- Assuming the buffer is empty, packets are placed in the buffer by sequence number (modulo the window size), ensuring that the order of the packets is maintained. If a packet placed in the buffer is at the bottom of the window, then the window moves and the payload is sent up to the application. 
 -  How does your protocol provide bi-directional data transfers? 
+	- Both connected hosts may send and receive data. ACKs may carry a payload. Both hosts maintain two buffers: one for sending, and one for receiving. They also maintain corresponding sliding windows.
 -  Does your protocol use any non-trivial checksum algorithm (i.e., anything more sophisticated than the IP 
-checksum)?  
+checksum)? 
+
+
+PROPERTIES
+- Both connected hosts maintain a buffer at least twice the size of the sliding window in order to avoid overlap.
+- Sliding window of constant size; use modular arithmetic to maintain indices.
+- Server and client maintain a window (buffer) to avoid retransmitting packets. For instance, if the sender sends packets 1 2 3 4 but 2 is lost, the server maintains 3 and 4 and either waits for retransmission of packet 2 or requests a fast retransmission of packet 2.
