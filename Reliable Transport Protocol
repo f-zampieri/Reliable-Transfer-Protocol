@@ -1,0 +1,10 @@
+-  Is your protocol non-pipelined (such as Stop-and-Wait) or pipelined (such as Selective Repeat)? 
+	- My protocol is pipelined, like Selective Repeat.
+-  How does your protocol handle lost packets? 
+	- The sender sets a timer for each packet.
+-  How does your protocol handle corrupted packets? 
+-  How does your protocol handle duplicate packets? 
+-  How does your protocol handle out-of-order packets? 
+-  How does your protocol provide bi-directional data transfers? 
+-  Does your protocol use any non-trivial checksum algorithm (i.e., anything more sophisticated than the IP 
+checksum)?  
