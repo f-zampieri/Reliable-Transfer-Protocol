@@ -1,5 +1,92 @@
+import java.net.DatagramPacket;
+
+/**
+ * This class encapsulates methods for manipulating packet data.
+ * Supported operations include FXV header retrieval, 
+ * (de)serialization, checksum computation, and checksum validation. 
+ * @author Francisco Zampieri, Vignish Prasad
+ */
 public final class PacketUtilities {
+
+	public static final int HEADER_SIZE = 20;
+
+	/**
+	 * This method is responsible for computing the checksum. It is a reimplementation of
+	 * the checksum algorithm used by UDP, except 32 bits instead of 16.
+	 * @param packet The packet whose checksum is computed.
+	 * @return The value of the checksum, stored in 32 bits.
+	 */
+	public static int computeChecksum(DatagramPacket packet) {
+		// store checksum as long. use most significant 32 bits to store overflow.
+		// at the end, add the overflow back into the checksum.
+		long checksum = 0;
+		byte[] payload = packet.getData();
+
+		int currentInt = 0;
+		for (int i = 0; i < payload.length; i += 4) {
+			// we don't want to add the packet's stored checksum value to the
+			// checksum we are in the middle of computing.
+			if (i >= 16 && i <= 19) {
+				i = 20;
+			}
+			// retrieving 4 bytes from the data at once
+			for (int j = i; j < 4; j++) {
+				currentInt = (payload[j]   << 24) 
+						   + (payload[j+1] << 16)
+						   + (payload[j+2] << 8)
+						   + (payload[j+3]);
+			}
+			// add to the checksum
+			checksum += currentInt;
+			currentInt = 0;
+		}
+		// retrieve the overflow from the checksum
+		long overflow = 0xFFFFFFFF00000000L & checksum;
+		while (overflow != 0) {
+			// remove the overflow from the checksum
+			checksum = 0x00000000FFFFFFFFL & checksum;
+			// add the overflow back to the checksum
+			checksum += overflow;
+			overflow = 0xFFFFFFFF00000000L & checksum;
+		}
+		return ~((int) checksum);
+	}
+
+	/**
+	 * Validates the checksum. This is done by computing a checksum and comparing
+	 * it to the value found in the packet header.
+	 * @param packet The packet whose checksum will be calculated.
+	 * @return Whether or not there was a bit error in transmission.
+	 */
+	public static boolean validateChecksum(DatagramPacket packet) {
+		return computeChecksum(packet) == getChecksumFromPacket(packet);
+	}
 	
+	/**
+	 * Given a packet, returns its FXV protocol header.
+	 * @param packet The UDP packet whose payload contains the FXV protol header.
+	 * @return The given packet's FXV protocol header.
+	 */
+	public static FXVPacketHeader getHeaderFromPacket(DatagramPacket packet) {
+		byte[] payload = packet.getData();
+		byte[] header  = new byte[HEADER_SIZE];
+		for (int i = 0; i < header.length; i++) {
+			header[i] = payload[i];
+		}
+		return deserialize(header);
+	}
+
+	/**
+	 * Given a UDP packet, retrieve the stored checksum value.
+	 */
+	public static int getChecksumFromPacket(DatagramPacket packet) {
+		return getHeaderFromPacket(packet).checksum;
+	}
+
+	/**
+	 * Packs an FXV packet header into a byte array, whose structure 
+	 * is detailed in the FXV protocol description.
+	 */ 
 	public static byte[] serialize(FXVPacketHeader ph) {
 		byte[] data = new byte[20];
 		// most significant byte of the short
@@ -34,6 +121,10 @@ public final class PacketUtilities {
 		return data;
 	}
 
+	/**
+	 * Given the bytes of an FXV packet header, returns an
+	 * FXVPacketHeader object encapsulating the header data.
+	 */ 
 	public static FXVPacketHeader deserialize(byte[] headerData) {
 		FXVPacketHeader ph = new FXVPacketHeader();
 
