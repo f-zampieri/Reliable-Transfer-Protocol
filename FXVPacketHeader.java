@@ -6,6 +6,7 @@ public class FXVPacketHeader {
 	public int   seqNumber;
 	public int   ackNumber;
 	public int   checksum;
+	public int   payloadLength;
 
 	private byte  flags;
 	private int  windowSize; // need getters and setters to avoid using first 8 bits

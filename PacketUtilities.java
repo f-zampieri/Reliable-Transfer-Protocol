@@ -1,4 +1,6 @@
 import java.net.DatagramPacket;
+import java.security.MessageDigest;
+import java.util.Random;
 
 /**
  * This class encapsulates methods for manipulating packet data.
@@ -8,7 +10,7 @@ import java.net.DatagramPacket;
  */
 public final class PacketUtilities {
 
-	public static final int HEADER_SIZE = 20;
+	public static final int HEADER_SIZE = 24;
 
 	/**
 	 * This method is responsible for computing the checksum. It is a reimplementation of
@@ -16,11 +18,10 @@ public final class PacketUtilities {
 	 * @param packet The packet whose checksum is computed.
 	 * @return The value of the checksum, stored in 32 bits.
 	 */
-	public static int computeChecksum(DatagramPacket packet) {
+	public static int computeChecksum(byte[] payload) {
 		// store checksum as long. use most significant 32 bits to store overflow.
 		// at the end, add the overflow back into the checksum.
 		long checksum = 0;
-		byte[] payload = packet.getData();
 
 		int currentInt = 0;
 		for (int i = 0; i < payload.length; i += 4) {
@@ -52,14 +53,18 @@ public final class PacketUtilities {
 		return ~((int) checksum);
 	}
 
+	public static int computeChecksum(FXVPacket packet) {
+		return computeChecksum(packet.toByteArray());
+	}
+
 	/**
 	 * Validates the checksum. This is done by computing a checksum and comparing
 	 * it to the value found in the packet header.
 	 * @param packet The packet whose checksum will be calculated.
 	 * @return Whether or not there was a bit error in transmission.
 	 */
-	public static boolean validateChecksum(DatagramPacket packet) {
-		return computeChecksum(packet) == getChecksumFromPacket(packet);
+	public static boolean validateChecksum(FXVPacket packet) {
+		return computeChecksum(packet) == packet.getChecksum();
 	}
 	
 	/**
@@ -67,8 +72,7 @@ public final class PacketUtilities {
 	 * @param packet The UDP packet whose payload contains the FXV protol header.
 	 * @return The given packet's FXV protocol header.
 	 */
-	public static FXVPacketHeader getHeaderFromPacket(DatagramPacket packet) {
-		byte[] payload = packet.getData();
+	public static FXVPacketHeader getHeaderFromPacket(byte[] payload) {
 		byte[] header  = new byte[HEADER_SIZE];
 		for (int i = 0; i < header.length; i++) {
 			header[i] = payload[i];
@@ -76,10 +80,11 @@ public final class PacketUtilities {
 		return deserialize(header);
 	}
 
+
 	/**
 	 * Given a UDP packet, retrieve the stored checksum value.
 	 */
-	public static int getChecksumFromPacket(DatagramPacket packet) {
+	public static int getChecksumFromPacket(byte[] packet) {
 		return getHeaderFromPacket(packet).checksum;
 	}
 
@@ -118,6 +123,11 @@ public final class PacketUtilities {
 		data[18] = (byte) (ph.checksum >> 8);
 		data[19] = (byte) ph.checksum;
 
+		data[20] = (byte) (ph.payloadLength >> 24);
+		data[21] = (byte) (ph.payloadLength >> 16);
+		data[22] = (byte) (ph.payloadLength >> 8);
+		data[23] = (byte) ph.payloadLength;
+
 		return data;
 	}
 
@@ -154,8 +164,27 @@ public final class PacketUtilities {
 					+ ((0xFF & headerData[18]) << 8) 
 					+ (0xFF & headerData[19]);
 
+		ph.payloadLength = ((0xFF & headerData[20]) << 24)
+						 + ((0xFF & headerData[21]) << 16) 
+						 + ((0xFF & headerData[22]) << 8) 
+						 + (0xFF & headerData[23]);
+
 		return ph;
 	}
+
+    /**
+     * @return String of 64 randomly generated characters.
+     */
+    public static String generateRandomChallenge() {
+        Random r = new Random();
+        char[] chars = new char[64];
+        for (int i = 0; i < 64; i++) {
+            // gets character in range A-Z
+            chars[i] = (char) (r.nextInt('Z' - 'A') + 'A');
+        }
+        String res = new String(chars);
+        return res;
+    }
 
 	public static void main(String[] args) {
 		byte[] headerData = new byte[20];
