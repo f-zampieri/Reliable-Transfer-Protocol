@@ -1,5 +1,8 @@
 import java.io.IOException;
 import java.net.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.Random;
 
 public class FXVSocket {
@@ -11,20 +14,23 @@ public class FXVSocket {
 	private int windowBase;
 	private int windowHead;
 	private Random random;
+	private MessageDigest md;
 
 	//Constructor to create an FxVSocket
-	public FXVSocket() throws SocketException {
+	public FXVSocket() throws SocketException, NoSuchAlgorithmException {
 		this.socket = new DatagramSocket();
 		this.windowBase = 0;
 		this.windowHead = 0;
 		this.random = new Random();
+		this.md = MessageDigest.getInstance("MD5");
 	}
 
-	public FXVSocket(int portNumber) throws SocketException {
+	public FXVSocket(int portNumber) throws SocketException, NoSuchAlgorithmException {
 		this.socket = new DatagramSocket(portNumber);
 		this.windowBase = 0;
 		this.windowHead = 0;
 		this.random = new Random();
+		this.md = MessageDigest.getInstance("MD5");
 	}
 
 	public void bind(InetSocketAddress addr) throws SocketException {
@@ -52,12 +58,47 @@ public class FXVSocket {
 		header.checksum = PacketUtilities.computeChecksum(PacketUtilities.serialize(header));
 
 		DatagramPacket sendPacket =
-			new DatagramPacket(PacketUtilities.serialize(header), PacketUtilities.HEADER_SIZE, address);
+			new DatagramPacket(PacketUtilities.serialize(header),
+							   PacketUtilities.HEADER_SIZE, address);
 
 		socket.send(sendPacket);
+		socket.setSoTimeout(1000);
 
 		// 2. RECEIVES ACK + AUTH (FROM SERVER, accept())
+		byte[] receiveData = new byte[PacketUtilities.HEADER_SIZE + 64];
+		DatagramPacket receivePacket
+			= new DatagramPacket(receiveData, receiveData.length);
+
+        boolean gotAck = false;
+        FXVPacket authAckPacket;
+        FXVPacketHeader authAckPacketHeader;
+        while (!gotAck) {
+            try {
+                socket.receive(receivePacket);
+                // we are looking for 1) a valid checksum 2) ack number 3) ACK+AUTH flags
+                authAckPacket = new FXVPacket(receiveData);
+                authAckPacketHeader = authAckPacket.getHeader();
+                gotAck = PacketUtilities.validateChecksum(authAckPacket)
+                		&& authAckPacketHeader.ackNumber == initialSeqNumber + 1
+                		&& authAckPacketHeader.getFlags() == 10;
+                System.out.println(new String(authAckPacket.getData()));
+            } catch (SocketTimeoutException e) {
+            	// TODO: handle server dying
+                socket.send(sendPacket);
+                continue;
+            }
+        }
+
+        md.update(authAckPacket.getData());
+        byte[] digest = md.digest();
+
 		// 3. SENDS ACK + AUTH BACK
+
+        header = new FXVPacketHeader();
+        header.setAuth(true);
+        header.setAck(true);
+        
+
 		// 4. RECEIVES SYN + ACK (SERVER HAS ALLOCATED RESOURCES)
 		// 5. SENDS ACK
 
@@ -84,12 +125,16 @@ public class FXVSocket {
 			socket.receive(receivePacket);
 
 			receiveHeader = PacketUtilities.deserialize(receiveData);
-			if (PacketUtilities.validateChecksum(new FXVPacket(receiveHeader, 0))) {
+			// System.out.println(receiveHeader);
+			if (PacketUtilities.validateChecksum(new FXVPacket(receiveHeader))) {
 				if (receiveHeader.getFlags() == 16) {
 					connectionSuccessful = true;
 
 					sendHeader = new FXVPacketHeader();
-					sendHeader.seqNumber = random.nextInt();
+					// 64-byte challenge string
+					sendHeader.payloadLength = 64;
+					int initialSeqNumber = random.nextInt();
+					sendHeader.seqNumber = initialSeqNumber;
 					sendHeader.ackNumber = receiveHeader.seqNumber + 1;
 					sendHeader.srcPort = receiveHeader.dstPort;
 					sendHeader.dstPort = receiveHeader.srcPort;
@@ -99,9 +144,12 @@ public class FXVSocket {
 
 					// compute message digest
 					String challenge = PacketUtilities.generateRandomChallenge();
+					System.out.println(challenge);
 					byte[] challengeBytes = challenge.getBytes();
+					md.update(challengeBytes);
+			        byte[] digest = md.digest();
 
-					fxvSendPacket = new FXVPacket(sendHeader, challengeBytes.length);
+					fxvSendPacket = new FXVPacket(sendHeader);
 					fxvSendPacket.setData(challengeBytes);
 
 					fxvSendPacket.setChecksum(PacketUtilities.computeChecksum(fxvSendPacket));
@@ -112,6 +160,31 @@ public class FXVSocket {
 													receivePacket.getSocketAddress());
 
 					socket.send(sendPacket);
+					
+					boolean gotAck = false;
+					receiveData = new byte[PacketUtilities.HEADER_SIZE + md.getDigestLength()];
+			        FXVPacket authAckPacket;
+			        FXVPacketHeader authAckPacketHeader;
+			        while (!gotAck) {
+			            try {
+			                socket.receive(receivePacket);
+			                // we are looking for 1) a valid checksum 2) ack number 3) ACK+AUTH flags
+			                authAckPacket = new FXVPacket(receiveData);
+			                authAckPacketHeader = authAckPacket.getHeader();
+			                gotAck = PacketUtilities.validateChecksum(authAckPacket)
+			                		&& authAckPacketHeader.ackNumber == initialSeqNumber + 1
+			                		&& authAckPacketHeader.getFlags() == 10;
+			                System.out.println(new String(authAckPacket.getData()));
+			            } catch (SocketTimeoutException e) {
+			            	// TODO: handle server dying
+			                socket.send(sendPacket);
+			                continue;
+			            }
+			        }
+
+			        if (Arrays.equals(digest, authAckPacket.getData())) {
+			        	System.out.println("we have passed the challenge");
+			        }
 				}
 			}
 		}

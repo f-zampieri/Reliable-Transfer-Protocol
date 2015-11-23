@@ -3,9 +3,9 @@ public class FXVPacket {
 	private FXVPacketHeader header;
 	private byte[] payload;
 
-	public FXVPacket(FXVPacketHeader header, int size) {
+	public FXVPacket(FXVPacketHeader header) {
 		this.header = header;
-		this.payload = new byte[size];
+		this.payload = new byte[header.payloadLength];
 	}
 
 	public FXVPacket(byte[] data) {
@@ -15,6 +15,10 @@ public class FXVPacket {
 		}
 		this.header = PacketUtilities.deserialize(headerData);
 		this.payload = new byte[this.header.payloadLength];
+		// sanity check for amount of data
+		if (!(data.length == PacketUtilities.HEADER_SIZE + this.header.payloadLength)) {
+			System.out.println("Packet length does not check out");
+		}
 		for (int i = 0; i < this.header.payloadLength; i++) {
 			this.payload[i] = data[i + headerData.length];
 		}
@@ -47,7 +51,7 @@ public class FXVPacket {
 			result[i] = headerData[i];
 		}
 		for (int i = headerData.length; i < result.length; i++) {
-			result[i] = payload[i];
+			result[i] = payload[i - headerData.length];
 		}
 		return result;
 	}

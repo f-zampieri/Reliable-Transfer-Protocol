@@ -8,7 +8,7 @@ public class FXVPacketHeader {
 	public int   checksum;
 	public int   payloadLength;
 
-	private byte  flags;
+	private byte flags;
 	private int  windowSize; // need getters and setters to avoid using first 8 bits
 
 	public int getSrcPortAsInt() {

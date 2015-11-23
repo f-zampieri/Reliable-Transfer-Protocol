@@ -93,7 +93,7 @@ public final class PacketUtilities {
 	 * is detailed in the FXV protocol description.
 	 */ 
 	public static byte[] serialize(FXVPacketHeader ph) {
-		byte[] data = new byte[20];
+		byte[] data = new byte[HEADER_SIZE];
 		// most significant byte of the short
 		data[0] = (byte) (ph.srcPort >> 8);
 		// least significant byte of the short
