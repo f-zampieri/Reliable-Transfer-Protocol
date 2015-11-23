@@ -87,13 +87,14 @@ public class FXVPacketHeader {
 	}
 
 	public String toString() {
-		return getSrcPortAsInt() + " "
-			 + getDstPortAsInt() + " "
-			 + seqNumber + " "
-			 + ackNumber + " "
-			 + Integer.toBinaryString(flags) + " "
-			 + windowSize + " "
-			 + checksum;
+		return "srcPort: " + getSrcPortAsInt() + " " 
+			 + "dstPort: " + getDstPortAsInt() + " "
+			 + "seqNumber: " + seqNumber + " "
+			 + "ackNumber: " + ackNumber + " "
+			 + "flags: " + Integer.toBinaryString(flags) + " "
+			 + "windowSize: " + windowSize + " "
+			 + "checksum: " + checksum + " "
+			 + "payloadLength: " + payloadLength;
 	}
 
 	public static void main(String[] args) {
