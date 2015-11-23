@@ -1,5 +1,4 @@
 import java.net.DatagramPacket;
-import java.security.MessageDigest;
 import java.util.Random;
 
 /**
@@ -31,24 +30,23 @@ public final class PacketUtilities {
 				i = 20;
 			}
 			// retrieving 4 bytes from the data at once
-			for (int j = i; j < 4; j++) {
-				currentInt = (payload[j]   << 24) 
-						   + (payload[j+1] << 16)
-						   + (payload[j+2] << 8)
-						   + (payload[j+3]);
-			}
+			currentInt = (payload[i]   << 24) 
+					   + (payload[i+1] << 16)
+					   + (payload[i+2] << 8)
+					   + (payload[i+3]);
 			// add to the checksum
 			checksum += currentInt;
 			currentInt = 0;
 		}
 		// retrieve the overflow from the checksum
-		long overflow = 0xFFFFFFFF00000000L & checksum;
+		long overflow = (0xFFFFFFFF00000000L & checksum) >>> 32;
 		while (overflow != 0) {
 			// remove the overflow from the checksum
+			System.out.println(Long.toBinaryString(checksum));
 			checksum = 0x00000000FFFFFFFFL & checksum;
 			// add the overflow back to the checksum
 			checksum += overflow;
-			overflow = 0xFFFFFFFF00000000L & checksum;
+			overflow = (0xFFFFFFFF00000000L & checksum) >>> 32;
 		}
 		return ~((int) checksum);
 	}
@@ -187,30 +185,35 @@ public final class PacketUtilities {
     }
 
 	public static void main(String[] args) {
-		byte[] headerData = new byte[20];
-		headerData[0] = (byte) 0xaf;
-		headerData[1] = (byte) 0xae;
-		headerData[2] = (byte) 0xaf;
-		headerData[3] = (byte) 0xad;
-		for (int i = 4; i < 16; i++) {
-			headerData[i] = 0;
-		}
-		headerData[13] = (byte) 0xff;
-		headerData[14] = (byte) 0xff;
-		headerData[15] = (byte) 0xff;
+		// byte[] headerData = new byte[20];
+		// headerData[0] = (byte) 0xaf;
+		// headerData[1] = (byte) 0xae;
+		// headerData[2] = (byte) 0xaf;
+		// headerData[3] = (byte) 0xad;
+		// for (int i = 4; i < 16; i++) {
+		// 	headerData[i] = 0;
+		// }
+		// headerData[13] = (byte) 0xff;
+		// headerData[14] = (byte) 0xff;
+		// headerData[15] = (byte) 0xff;
 
-		headerData[16] = (byte) 0xff;
-		headerData[17] = (byte) 0xff;
-		headerData[18] = (byte) 0xff;
-		headerData[19] = (byte) 0xfe;
-		FXVPacketHeader ph = deserialize(headerData);
-		System.out.println(ph);
+		// headerData[16] = (byte) 0xff;
+		// headerData[17] = (byte) 0xff;
+		// headerData[18] = (byte) 0xff;
+		// headerData[19] = (byte) 0xfe;
+		// FXVPacketHeader ph = deserialize(headerData);
+		// System.out.println(ph);
 
-		byte[] newHeaderData = serialize(ph);
-		for (byte b : newHeaderData) {
-			System.out.println(b);
-		}
+		// byte[] newHeaderData = serialize(ph);
+		// for (byte b : newHeaderData) {
+		// 	System.out.println(b);
+		// }
+
+		// byte[] data = {(byte) 0x00, (byte) 0x01, (byte) 0x0A, (byte) 0xEF};
+		byte[] data = {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF};
+		System.out.println(Integer.toBinaryString(computeChecksum(data)));
 
 	}
+
 
 }
