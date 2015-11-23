@@ -17,7 +17,9 @@ public class FXVPacket {
 		this.payload = new byte[this.header.payloadLength];
 		// sanity check for amount of data
 		if (!(data.length == PacketUtilities.HEADER_SIZE + this.header.payloadLength)) {
-			System.out.println("Packet length does not check out");
+			System.out.println("Packet length does not check out"
+								+ data.length + " "
+								+ this.header.payloadLength);
 		}
 		for (int i = 0; i < this.header.payloadLength; i++) {
 			this.payload[i] = data[i + headerData.length];

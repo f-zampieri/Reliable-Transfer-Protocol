@@ -70,8 +70,10 @@ public class FXVSocket {
 			= new DatagramPacket(receiveData, receiveData.length);
 
         boolean gotAck = false;
-        FXVPacket authAckPacket;
-        FXVPacketHeader authAckPacketHeader;
+
+        //TODO: Try and get rid of this null thing
+        FXVPacket authAckPacket = null;
+        FXVPacketHeader authAckPacketHeader = null;
         while (!gotAck) {
             try {
                 socket.receive(receivePacket);
@@ -97,6 +99,21 @@ public class FXVSocket {
         header = new FXVPacketHeader();
         header.setAuth(true);
         header.setAck(true);
+        header.ackNumber = authAckPacketHeader.seqNumber + 1;
+        header.seqNumber = initialSeqNumber + 1;
+        header.payloadLength = digest.length;
+        header.srcPort = (short) socket.getLocalPort();
+		header.dstPort = (short) address.getPort();
+		FXVPacket sendingAuthAckPacket = new FXVPacket(header);
+		sendingAuthAckPacket.setChecksum(PacketUtilities.computeChecksum(authAckPacket));
+		byte[] sendingAuthAckPacketBytes = sendingAuthAckPacket.toByteArray();
+		sendPacket = new DatagramPacket(sendingAuthAckPacketBytes,
+										sendingAuthAckPacketBytes.length,
+										receivePacket.getSocketAddress());
+		socket.send(sendPacket);
+
+
+
         
 
 		// 4. RECEIVES SYN + ACK (SERVER HAS ALLOCATED RESOURCES)
@@ -125,7 +142,6 @@ public class FXVSocket {
 			socket.receive(receivePacket);
 
 			receiveHeader = PacketUtilities.deserialize(receiveData);
-			// System.out.println(receiveHeader);
 			if (PacketUtilities.validateChecksum(new FXVPacket(receiveHeader))) {
 				if (receiveHeader.getFlags() == 16) {
 					connectionSuccessful = true;
@@ -144,7 +160,6 @@ public class FXVSocket {
 
 					// compute message digest
 					String challenge = PacketUtilities.generateRandomChallenge();
-					System.out.println(challenge);
 					byte[] challengeBytes = challenge.getBytes();
 					md.update(challengeBytes);
 			        byte[] digest = md.digest();
@@ -163,17 +178,29 @@ public class FXVSocket {
 					
 					boolean gotAck = false;
 					receiveData = new byte[PacketUtilities.HEADER_SIZE + md.getDigestLength()];
-			        FXVPacket authAckPacket;
-			        FXVPacketHeader authAckPacketHeader;
+
+					//TODO: Get rid of the null thing
+			        FXVPacket authAckPacket = null;
+			        FXVPacketHeader authAckPacketHeader = null;
 			        while (!gotAck) {
 			            try {
+			            	//TODO: Fix this and remove the variable 40.
+			            	receiveData = new byte[40];
+							receivePacket = new DatagramPacket(receiveData, PacketUtilities.HEADER_SIZE);
+
 			                socket.receive(receivePacket);
 			                // we are looking for 1) a valid checksum 2) ack number 3) ACK+AUTH flags
+
 			                authAckPacket = new FXVPacket(receiveData);
 			                authAckPacketHeader = authAckPacket.getHeader();
+			                System.out.println(authAckPacketHeader);
+			                System.out.println(authAckPacket.getData());
+
+			                //TODO: Stuff breaks here. We need to figure out why checksum doesnt validate correctly.
 			                gotAck = PacketUtilities.validateChecksum(authAckPacket)
 			                		&& authAckPacketHeader.ackNumber == initialSeqNumber + 1
 			                		&& authAckPacketHeader.getFlags() == 10;
+			                System.out.println(gotAck);
 			                System.out.println(new String(authAckPacket.getData()));
 			            } catch (SocketTimeoutException e) {
 			            	// TODO: handle server dying
