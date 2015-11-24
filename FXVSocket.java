@@ -12,6 +12,7 @@ public class FXVSocket {
     public FXVPacket[] receiveBuffer;
     public final int WINDOW_SIZE = 1;
     public final int PACKET_SIZE = 1000;
+    public final int TOTAL_TRIES = 4;
     public InetSocketAddress srcSocketAddress;
     public InetSocketAddress dstSocketAddress;
 
@@ -82,7 +83,7 @@ public class FXVSocket {
             = new DatagramPacket(receiveData, receiveData.length);
 
         boolean gotAck = false;
-
+        int numTries = 0;
         //TODO: Try and get rid of this null thing
         FXVPacket authAckPacket = null;
         FXVPacketHeader authAckPacketHeader = null;
@@ -98,7 +99,12 @@ public class FXVSocket {
                         && authAckPacketHeader.getFlags() == 10;
             } catch (SocketTimeoutException e) {
                 // TODO: handle server dying
+                numTries++;
+                if (numTries >= TOTAL_TRIES) {
+                    throw new SocketException("Connection timed out.");
+                }
                 socket.send(sendPacket);
+
                 continue;
             }
         }
@@ -132,6 +138,7 @@ public class FXVSocket {
 
         // 4. RECEIVES SYN + ACK (SERVER HAS ALLOCATED RESOURCES)
         gotAck = false;
+        numTries = 0;
         while (!gotAck) {
             try {
                 receiveData = new byte[PacketUtilities.HEADER_SIZE];
@@ -149,6 +156,10 @@ public class FXVSocket {
                     && synAckPacketHeader.getFlags() == 24;
             } catch (SocketTimeoutException e) {
                 // TODO: handle server dying
+                numTries++;
+                if (numTries >= TOTAL_TRIES) {
+                    throw new SocketException("Connection timed out.");
+                }
                 socket.send(sendPacket);
                 continue;
             }
@@ -250,6 +261,7 @@ public class FXVSocket {
                     //TODO: Get rid of the null thing
                     FXVPacket authAckPacket = null;
                     FXVPacketHeader authAckPacketHeader = null;
+                    int numTries = 0;
                     while (!gotAck) {
                         try {
                             //TODO: Fix this and remove the variable 40.
@@ -267,7 +279,10 @@ public class FXVSocket {
                                     && authAckPacketHeader.ackNumber == this.seqNumber + challengeBytes.length + 1
                                     && authAckPacketHeader.getFlags() == 10;
                         } catch (SocketTimeoutException e) {
-                            // TODO: handle server dying
+                            numTries++;
+                            if (numTries >= TOTAL_TRIES) {
+                                throw new SocketException("Connection timed out.");
+                            }
                             socket.send(sendPacket);
                             continue;
                         }
@@ -394,6 +409,7 @@ public class FXVSocket {
         this.socket.send(sendPacket);
 
         boolean gotAck = false;
+        int numTries = 0;
         while (!gotAck) {
             try {
                 byte[] receiveData = new byte[PacketUtilities.PACKET_SIZE];
@@ -410,7 +426,10 @@ public class FXVSocket {
                     && finAckPacketHeader.ackNumber == this.seqNumber + 1
                     && finAckPacketHeader.getFlags() == 8;
             } catch (SocketTimeoutException e) {
-                // TODO: handle server dying
+                numTries++;
+                if (numTries >= TOTAL_TRIES) {
+                    throw new SocketException("Connection timed out.");
+                }
                 socket.send(sendPacket);
                 continue;
             }

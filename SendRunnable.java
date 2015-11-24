@@ -2,7 +2,6 @@ import java.io.IOException;
 import java.net.*;
 
 public class SendRunnable implements Runnable {
-	private Thread t;
 	private int index;
 	private FXVSocket fxvSocket;
 
@@ -27,6 +26,7 @@ public class SendRunnable implements Runnable {
         } catch (Exception e) {
         	
         }
+        int numTries = 0;
         while (!gotAck) {
             try {
                 socket.receive(receivePacket);
@@ -42,7 +42,12 @@ public class SendRunnable implements Runnable {
             } catch (SocketTimeoutException e) {
                 // TODO: handle server dying
                 try {
-	                socket.send(sendPacket);
+                    numTries++;
+                    if (numTries >= 4) {
+                        throw new SocketException("Connection timed out.");
+                    }
+                    socket.send(sendPacket);
+                    continue;
                 } catch (Exception e1) {
 
                 }
