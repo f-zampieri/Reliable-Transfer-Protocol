@@ -1,21 +1,22 @@
+import java.io.File;
 import java.io.FileInputStream;
 
 public class FXAServer {
 
-    public final int COMMAND_LENGTH = 75;
-    public final int FILE_SIZE_LENGTH = 10;
+    public static final int COMMAND_LENGTH = 75;
+    public static final int FILE_SIZE_LENGTH = 10;
 
     public static byte[] removePadding(byte[] data) {
         //Removing the padded zeroes and getting the actual data
         int index = 0;
-        for(int i = 0; i < COMMAND_LENGTH; i++) {
-            if(receiveData[i] == 0) {
+        for (int i = 0; i < COMMAND_LENGTH; i++) {
+            if (data[i] == 0) {
                 index = i;
             }
         }
         byte[] actualData = new byte[index];
-        for(int i = 0; i < index; i++) {
-            actualData[i] = receiveData[i];
+        for (int i = 0; i < index; i++) {
+            actualData[i] = data[i];
         }
         return actualData;
     }
@@ -32,13 +33,13 @@ public class FXAServer {
         return paddedData;
     }
     
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         if (args.length < 3 || args.length > 4) {
             throw new IllegalArgumentException("Wrong number of arguments.");
         }
 
         int portNumber = Integer.parseInt(args[0]);
-        String[] ipAddressString = args[2].split("\\.");
+        String[] ipAddressString = args[1].split("\\.");
         byte[] ipAddress = {Byte.parseByte(ipAddressString[0]),
                             Byte.parseByte(ipAddressString[1]),
                             Byte.parseByte(ipAddressString[2]),
@@ -52,25 +53,23 @@ public class FXAServer {
             byte[] receiveData = socket.receive(COMMAND_LENGTH);
 
             String command = new String(removePadding(receiveData));
-            String[] commandComponents = command.split(' ');
+            String[] commandComponents = command.split(" ");
             if (commandComponents[0].equals("get")) {
                 File theFile = new File(commandComponents[1]);
                 FileInputStream fileStream = new FileInputStream(theFile);
-                
-
                 //Assumed that the file size is not greater than 32
                 //We send a fileSize of 32 bytes as a standard size so that
                 //the receiver can read the file size before actually reading
                 //the file itself.
-                byte[] fileSizeData = new String(new Integer(theFile.length())).getBytes();
+                byte[] fileSizeData = new Long(theFile.length()).toString().getBytes();
                 socket.send(addPadding(fileSizeData, FILE_SIZE_LENGTH));
-                byte[] fileData = new Byte[PacketUtilities.PACKET_SIZE];
+                byte[] fileData = new byte[PacketUtilities.PACKET_SIZE];
                 while (fileStream.available() > 0) {
                     fileStream.read(fileData);
                     // create packet, send that shit
                     socket.send(fileData);
                 }
-            } else if (command.equals("POST")) {
+            } else if (command.equals("post")) {
                 boolean eof = false;
                 while (!eof) {
                     byte[] receiveFile = socket.receive(16);

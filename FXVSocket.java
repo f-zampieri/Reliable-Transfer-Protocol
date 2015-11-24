@@ -12,6 +12,8 @@ public class FXVSocket {
     public FXVPacket[] receiveBuffer;
     public final int WINDOW_SIZE = 1;
     public final int PACKET_SIZE = 1000;
+    public InetSocketAddress srcSocketAddress;
+    public InetSocketAddress dstSocketAddress;
 
     private int receiveWindowBase;
     private int receiveWindowHead;
@@ -21,8 +23,9 @@ public class FXVSocket {
     private Random random;
     private MessageDigest md;
 
-    private InetSocketAddress srcSocketAddress;
-    private InetSocketAddress dstSocketAddress;
+    private boolean[] sendIsAcked;
+    private boolean[] receiveIsAcked;
+
 
     //Constructor to create an FxVSocket
     public FXVSocket() throws SocketException, NoSuchAlgorithmException {
@@ -174,8 +177,10 @@ public class FXVSocket {
         this.dstSocketAddress = address;
         System.out.println(this.srcSocketAddress);
         System.out.println(this.dstSocketAddress);
-        this.sendBuffer = new FXVPacket[WINDOW_SIZE];
-        this.receiveBuffer = new FXVPacket[WINDOW_SIZE];
+        this.sendBuffer = new FXVPacket[2 * WINDOW_SIZE];
+        this.receiveBuffer = new FXVPacket[2 * WINDOW_SIZE];
+        this.sendIsAcked = new boolean[2 * WINDOW_SIZE];
+        this.receiveIsAcked = new boolean[2 * WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
@@ -303,8 +308,10 @@ public class FXVSocket {
         this.dstSocketAddress = new InetSocketAddress(receivePacket.getAddress(), receivePacket.getPort());
         System.out.println(this.srcSocketAddress);
         System.out.println(this.dstSocketAddress);
-        this.sendBuffer = new FXVPacket[WINDOW_SIZE];
-        this.receiveBuffer = new FXVPacket[WINDOW_SIZE];
+        this.sendBuffer = new FXVPacket[2 * WINDOW_SIZE];
+        this.receiveBuffer = new FXVPacket[2 * WINDOW_SIZE];
+        this.sendIsAcked = new boolean[2 * WINDOW_SIZE];
+        this.receiveIsAcked = new boolean[2 * WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
@@ -314,13 +321,45 @@ public class FXVSocket {
         return true;
     }
 
-    public void send(byte[] data) {
+    // TODO: host may not send, receive, or close before accepting/listening
+    public void send(byte[] data) throws InterruptedException {
         // we must, in some order:
         // a) vacate the buffer (send all that shit)
         // b) packetize the provided data and populate the buffer
         // c) send the packetized data
         FXVPacket[] fxvPackets = packetize(data);
+        int numPacketsSent = 0;
+        // populate array based on indices of head and base
+        // dispatch threads (cleanup, then sending)
+        // wait for there to be space in the array, repeat
+        // join threads
 
+        Thread cleanUpThread = new Thread(new CleanUpRunnable(this));
+        cleanUpThread.start();
+
+        Thread[] sendThreads = new Thread[WINDOW_SIZE];
+        while (numPacketsSent < fxvPackets.length) {
+            int i = sendWindowHead % sendBuffer.length;
+
+            while (i != sendWindowBase % sendBuffer.length) {
+                sendIsAcked[i] = false;
+                sendBuffer[i] = fxvPackets[numPacketsSent++];
+                i++;
+                i = i % sendBuffer.length;
+            }
+
+            for (int j = 0; j < WINDOW_SIZE; j++) {
+                sendThreads[j] = new Thread(new SendRunnable(sendWindowHead++, this));
+                sendThreads[j].start();
+            }
+        }
+
+        for (int i = 0; i < WINDOW_SIZE; i++) {
+            sendThreads[i].join();
+        }
+        cleanUpThread.interrupt();
+        this.sendWindowBase = 0;
+        this.sendWindowHead = 0;
     }
 
     public byte[] receive() {
@@ -335,6 +374,7 @@ public class FXVSocket {
         }
         return null;
     }
+
 
     public void close() throws IOException {
         while (sendWindowBase - sendWindowHead > 0);
@@ -421,6 +461,27 @@ public class FXVSocket {
             this.seqNumber += newPayloadLength;
         }
         return packets;
+    }
+
+    public void updateSendIsAckedBuffer(int index) {
+        this.sendIsAcked[index] = true;
+    }
+
+    public boolean[] getSendIsAckedBuffer() {
+        return this.sendIsAcked;
+    }
+
+    public int getSendWindowBase() {
+        return this.sendWindowBase;
+    }
+
+    public int getSendWindowHead() {
+        return this.sendWindowHead;
+    }
+
+    public void incrementSendWindowHead() {
+        this.sendWindowHead++;
+        this.sendWindowHead = this.sendWindowHead % sendBuffer.length;
     }
 
     public static void main(String[] args) throws Exception {
