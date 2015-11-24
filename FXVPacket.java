@@ -46,6 +46,16 @@ public class FXVPacket {
 		this.payload = data;
 	}
 
+	public String toString() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(this.header.toString());
+		sb.append(" ");
+		for (byte b : this.payload) {
+			sb.append(b);
+		}
+		return sb.toString();
+	}
+
 	public byte[] toByteArray() {
 		byte[] headerData = PacketUtilities.serialize(this.header);
 		byte[] result = new byte[headerData.length + this.payload.length];

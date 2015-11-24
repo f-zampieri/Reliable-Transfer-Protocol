@@ -8,14 +8,16 @@ import java.util.Random;
 public class FXVSocket {
 
     public DatagramSocket socket;
-    public DatagramPacket[] sendBuffer;
-    public DatagramPacket[] receiveBuffer;
+    public FXVPacket[] sendBuffer;
+    public FXVPacket[] receiveBuffer;
     public final int WINDOW_SIZE = 1;
+    public final int PACKET_SIZE = 1000;
 
-    private int sendWindowBase;
-    private int sendWindowHead;
     private int receiveWindowBase;
     private int receiveWindowHead;
+    private int sendWindowBase;
+    private int sendWindowHead;
+    private int seqNumber;
     private Random random;
     private MessageDigest md;
 
@@ -26,12 +28,14 @@ public class FXVSocket {
     public FXVSocket() throws SocketException, NoSuchAlgorithmException {
         this.socket = new DatagramSocket();
         this.random = new Random();
+        this.seqNumber = random.nextInt();
         this.md = MessageDigest.getInstance("MD5");
     }
 
     public FXVSocket(int portNumber) throws SocketException, NoSuchAlgorithmException {
         this.socket = new DatagramSocket(portNumber);
         this.random = new Random();
+        this.seqNumber = random.nextInt();
         this.md = MessageDigest.getInstance("MD5");
     }
 
@@ -57,8 +61,7 @@ public class FXVSocket {
         // 1. CLIENT SENDS SYN ()
         FXVPacketHeader header = new FXVPacketHeader();
         header.setSyn(true);
-        int initialSeqNumber = random.nextInt();
-        header.seqNumber = initialSeqNumber;
+        header.seqNumber = this.seqNumber;
         header.srcPort = (short) socket.getLocalPort();
         header.dstPort = (short) address.getPort();
         header.checksum = PacketUtilities.computeChecksum(PacketUtilities.serialize(header));
@@ -88,7 +91,7 @@ public class FXVSocket {
                 authAckPacketHeader = authAckPacket.getHeader();
                 System.out.println(authAckPacketHeader);
                 gotAck = PacketUtilities.validateChecksum(authAckPacket)
-                        && authAckPacketHeader.ackNumber == initialSeqNumber + 1
+                        && authAckPacketHeader.ackNumber == seqNumber + 1
                         && authAckPacketHeader.getFlags() == 10;
             } catch (SocketTimeoutException e) {
                 // TODO: handle server dying
@@ -171,12 +174,13 @@ public class FXVSocket {
         this.dstSocketAddress = address;
         System.out.println(this.srcSocketAddress);
         System.out.println(this.dstSocketAddress);
-        this.sendBuffer = new DatagramPacket[WINDOW_SIZE];
-        this.receiveBuffer = new DatagramPacket[WINDOW_SIZE];
+        this.sendBuffer = new FXVPacket[WINDOW_SIZE];
+        this.receiveBuffer = new FXVPacket[WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
         this.receiveWindowHead = 0;
+        this.seqNumber += 2 + md.getDigestLength();
 
         return true;
     }
@@ -207,8 +211,7 @@ public class FXVSocket {
                     sendHeader = new FXVPacketHeader();
                     // 64-byte challenge string
                     sendHeader.payloadLength = 64;
-                    int initialSeqNumber = random.nextInt();
-                    sendHeader.seqNumber = initialSeqNumber;
+                    sendHeader.seqNumber = this.seqNumber;
                     sendHeader.ackNumber = receiveHeader.seqNumber + 1;
                     sendHeader.srcPort = receiveHeader.dstPort;
                     sendHeader.dstPort = receiveHeader.srcPort;
@@ -256,7 +259,7 @@ public class FXVSocket {
                             System.out.println(authAckPacketHeader);
 
                             gotAck = PacketUtilities.validateChecksum(authAckPacket)
-                                    && authAckPacketHeader.ackNumber == initialSeqNumber + challengeBytes.length + 1
+                                    && authAckPacketHeader.ackNumber == this.seqNumber + challengeBytes.length + 1
                                     && authAckPacketHeader.getFlags() == 10;
                         } catch (SocketTimeoutException e) {
                             // TODO: handle server dying
@@ -300,14 +303,133 @@ public class FXVSocket {
         this.dstSocketAddress = new InetSocketAddress(receivePacket.getAddress(), receivePacket.getPort());
         System.out.println(this.srcSocketAddress);
         System.out.println(this.dstSocketAddress);
-        this.sendBuffer = new DatagramPacket[WINDOW_SIZE];
-        this.receiveBuffer = new DatagramPacket[WINDOW_SIZE];
+        this.sendBuffer = new FXVPacket[WINDOW_SIZE];
+        this.receiveBuffer = new FXVPacket[WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
         this.receiveWindowHead = 0;
+        this.seqNumber += 65;
 
         return true;
+    }
+
+    public void send(byte[] data) {
+        // we must, in some order:
+        // a) vacate the buffer (send all that shit)
+        // b) packetize the provided data and populate the buffer
+        // c) send the packetized data
+        FXVPacket[] fxvPackets = packetize(data);
+
+    }
+
+    public byte[] receive() {
+        return receive(0);
+    }
+
+    public byte[] receive(int length) {
+        if (length == 0) {
+            // DESIGNATED
+        } else {
+
+        }
+        return null;
+    }
+
+    public void close() throws IOException {
+        while (sendWindowBase - sendWindowHead > 0);
+
+        FXVPacketHeader fxvFinPacketHeader = new FXVPacketHeader();
+        fxvFinPacketHeader.setFin(true);
+        fxvFinPacketHeader.seqNumber = this.seqNumber;
+        fxvFinPacketHeader.srcPort = (short) this.srcSocketAddress.getPort();
+        fxvFinPacketHeader.dstPort = (short) this.dstSocketAddress.getPort();
+        FXVPacket fxvFinPacket = new FXVPacket(fxvFinPacketHeader);
+        fxvFinPacket.setChecksum(PacketUtilities.computeChecksum(fxvFinPacket));
+        byte[] fxvFinPacketBytes = fxvFinPacket.toByteArray();
+        DatagramPacket sendPacket = new DatagramPacket(fxvFinPacketBytes,
+                                                    fxvFinPacketBytes.length,
+                                                    this.dstSocketAddress);
+
+        this.socket.send(sendPacket);
+
+        boolean gotAck = false;
+        while (!gotAck) {
+            try {
+                byte[] receiveData = new byte[PacketUtilities.PACKET_SIZE];
+                DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+
+                // we are looking for 1) a valid checksum 2) ack number 3) ACK flags
+
+                socket.receive(receivePacket);
+                FXVPacket finAckPacket = new FXVPacket(receiveData);
+                FXVPacketHeader finAckPacketHeader = finAckPacket.getHeader();
+                System.out.println(finAckPacketHeader);
+
+                gotAck = PacketUtilities.validateChecksum(finAckPacket)
+                    && finAckPacketHeader.ackNumber == this.seqNumber + 1
+                    && finAckPacketHeader.getFlags() == 8;
+            } catch (SocketTimeoutException e) {
+                // TODO: handle server dying
+                socket.send(sendPacket);
+                continue;
+            }
+        }
+
+        this.socket.close();
+    }
+
+    private FXVPacket[] packetize(byte[] data) {
+        int isDivisibleResult = ((data.length % PACKET_SIZE == 0) ? 0 : 1);
+        FXVPacket[] packets = new FXVPacket[data.length / PACKET_SIZE + isDivisibleResult];
+        for (int i = 0; i < packets.length - isDivisibleResult; i++) {
+            FXVPacketHeader header = new FXVPacketHeader();
+            // header.srcPort = (short) this.srcSocketAddress.getPort();
+            // header.dstPort = (short) this.dstSocketAddress.getPort();
+            header.seqNumber = this.seqNumber;
+            // int windowSize = PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
+            // header.setWindowSize(windowSize);
+            header.payloadLength = PACKET_SIZE;
+
+            byte[] packetData = new byte[PACKET_SIZE];
+            for (int j = 0; j < PACKET_SIZE; j++) {
+                packetData[j] = data[j + (i * PACKET_SIZE)];
+            }
+            packets[i] = new FXVPacket(header);
+            packets[i].setData(packetData);
+            packets[i].setChecksum(PacketUtilities.computeChecksum(packets[i]));
+            this.seqNumber += PACKET_SIZE;
+        }
+        if (data.length % PACKET_SIZE > 0) {
+            FXVPacketHeader header = new FXVPacketHeader();
+            // header.srcPort = (short) this.srcSocketAddress.getPort();
+            // header.dstPort = (short) this.dstSocketAddress.getPort();
+            header.seqNumber = this.seqNumber;
+            // int windowSize = PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
+            // header.setWindowSize(windowSize);
+            int newPayloadLength = data.length % PACKET_SIZE;
+            header.payloadLength = newPayloadLength;
+
+            byte[] packetData = new byte[newPayloadLength];
+            for (int j = 0; j < newPayloadLength; j++) {
+                packetData[j] = data[j + PACKET_SIZE * (packets.length - 1)];
+            }
+            packets[packets.length - 1] = new FXVPacket(header);
+            packets[packets.length - 1].setData(packetData);
+            packets[packets.length - 1].setChecksum(
+                PacketUtilities.computeChecksum(packets[packets.length - 1]));
+            this.seqNumber += newPayloadLength;
+        }
+        return packets;
+    }
+
+    public static void main(String[] args) throws Exception {
+        // byte[] allDatData = {0x0F, 0x0C, 0x08, 0x12};
+        // FXVSocket socket = new FXVSocket();
+        // FXVPacket[] packets = socket.packetize(allDatData);
+        // for (FXVPacket packet : packets) {
+        //     System.out.println(packet.toString());
+        // }
     }
 
 }
