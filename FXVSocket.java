@@ -6,7 +6,6 @@ import java.util.Arrays;
 import java.util.Random;
 
 public class FXVSocket {
-
     public DatagramSocket socket;
     public FXVPacket[] sendBuffer;
     public FXVPacket[] receiveBuffer;
@@ -24,8 +23,8 @@ public class FXVSocket {
     private Random random;
     private MessageDigest md;
 
-    private boolean[] sendIsAcked;
-    private boolean[] receiveIsAcked;
+    private PacketUtilities.SendState[] sendBufferState;
+    private PacketUtilities.SendState[] receiveBufferState;
 
 
     //Constructor to create an FxVSocket
@@ -190,8 +189,8 @@ public class FXVSocket {
         System.out.println(this.dstSocketAddress);
         this.sendBuffer = new FXVPacket[2 * WINDOW_SIZE];
         this.receiveBuffer = new FXVPacket[2 * WINDOW_SIZE];
-        this.sendIsAcked = new boolean[2 * WINDOW_SIZE];
-        this.receiveIsAcked = new boolean[2 * WINDOW_SIZE];
+        this.sendBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
+        this.receiveBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
@@ -325,54 +324,99 @@ public class FXVSocket {
         System.out.println(this.dstSocketAddress);
         this.sendBuffer = new FXVPacket[2 * WINDOW_SIZE];
         this.receiveBuffer = new FXVPacket[2 * WINDOW_SIZE];
-        this.sendIsAcked = new boolean[2 * WINDOW_SIZE];
-        this.receiveIsAcked = new boolean[2 * WINDOW_SIZE];
+        this.sendBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
+        this.receiveBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
         this.receiveWindowHead = 0;
         this.seqNumber += 65;
-
         return true;
     }
 
     // TODO: host may not send, receive, or close before accepting/listening
     public void send(byte[] data) throws InterruptedException {
-        // we must, in some order:
-        // a) vacate the buffer (send all that shit)
-        // b) packetize the provided data and populate the buffer
-        // c) send the packetized data
+
+        //Converting data into packets. 
         FXVPacket[] fxvPackets = packetize(data);
+
         int numPacketsSent = 0;
-        // populate array based on indices of head and base
-        // dispatch threads (cleanup, then sending)
-        // wait for there to be space in the array, repeat
-        // join threads
-
-        Thread cleanUpThread = new Thread(new CleanUpRunnable(this));
-        cleanUpThread.start();
-
-        Thread[] sendThreads = new Thread[WINDOW_SIZE];
-        while (numPacketsSent < fxvPackets.length) {
-            int i = sendWindowHead % sendBuffer.length;
-
-            while (i != sendWindowBase % sendBuffer.length) {
-                sendIsAcked[i] = false;
-                sendBuffer[i] = fxvPackets[numPacketsSent++];
-                i++;
-                i = i % sendBuffer.length;
+        //Initially load the buffer with the file data
+        for(int i = 0; i < this.sendBuffer.length; i++) {
+            if(numPacketsSent < fxvPackets.length) {
+                this.sendBuffer[i] = fxvPackets[numPacketsSent++];
+                this.sendBufferState[i] = PacketUtilities.SendState.READY_TO_SEND;
+            } else {
+                this.sendBufferState[i] = PacketUtilities.SendState.DONE;
             }
+        }  
 
-            for (int j = 0; j < WINDOW_SIZE; j++) {
-                sendThreads[j] = new Thread(new SendRunnable(sendWindowHead++, this));
-                sendThreads[j].start();
+        //The lock is used to control access to any variable in the socket
+        Object lock = new Object();
+        Object threadToInterruptLock = new Object();
+
+        SendManagerRunnable sendManagerRunnable = 
+                new SendManagerRunnable(this, lock, threadToInterruptLock);
+
+        Thread sendManager = new Thread(sendManagerRunnable);
+            
+        //The main thread performs the following tasks:
+        //1. Receives the acks.
+        //2. Updates the send buffers base.
+        //3. Adds new data from the application layer to the buffer if any.
+        //4. Checks if everything has been sent
+        boolean isDone = false;
+        while (isDone) {
+            byte[] receiveData = new byte[PacketUtilities.HEADER_SIZE];
+            DatagramPacket receivePacket = new DatagramPacket(receiveData,
+                                                              receiveData.length);
+            try {
+                this.socket.receive(receivePacket);
+                FXVPacket ackPacket = new FXVPacket(receiveData);
+                FXVPacketHeader ackPacketHeader = ackPacket.getHeader();
+                //Looking for 1) a valid checksum 2) ACK flags
+                boolean isValid = PacketUtilities.validateChecksum(ackPacket)
+                            && ackPacketHeader.getFlags() == 8;
+                if (isValid) {
+                    int ackNumber = ackPacketHeader.ackNumber;
+                    //Iterating through all packets in window to check which
+                    //packets sequence number corresponds to the ack number.
+                    synchronized(lock) {
+                        for (int i = sendWindowBase; i < sendWindowHead; i++) {
+                            int packetExpectedAck = sendBuffer[i].getHeader().seqNumber 
+                                            + sendBuffer[i].getHeader().payloadLength + 1;
+                            if (ackNumber == packetExpectedAck) {
+                                setSendBufferState(i, PacketUtilities.SendState.ACKED);
+                                sendManagerRunnable.setThreadToInterrupt((i - sendWindowBase));
+                                sendManager.interrupt();
+                            }
+                        }
+                        //Updates send buffer base and adds new data if any
+                        while (sendBufferState[sendWindowBase] == PacketUtilities.SendState.ACKED) {
+                            if (numPacketsSent < fxvPackets.length) {
+                                this.sendBuffer[sendWindowBase] = fxvPackets[numPacketsSent++];
+                                this.sendBufferState[sendWindowBase] = PacketUtilities.SendState.READY_TO_SEND;
+                            } else {
+                                this.sendBufferState[sendWindowBase] = PacketUtilities.SendState.DONE;
+                            }
+                            sendWindowBase++;
+                            sendWindowBase = sendWindowBase % sendBuffer.length;
+                            isDone = (sendWindowBase == sendWindowHead) 
+                                  && (sendBufferState[sendWindowBase] 
+                                                     == PacketUtilities.SendState.DONE);
+                        }
+                    }
+                }
+            } catch (SocketTimeoutException e) {
+                //TODO: Why does this happen?
+                System.out.println(e);
+            } catch (IOException e) {
+                //TODO: Why does this happen?
+                System.out.println(e);
             }
         }
-
-        for (int i = 0; i < WINDOW_SIZE; i++) {
-            sendThreads[i].join();
-        }
-        cleanUpThread.interrupt();
+        //We reset these values for the next method just in case clean up moves
+        //these numbers arbitrarily after everything has been sent. 
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
     }
@@ -414,9 +458,7 @@ public class FXVSocket {
             try {
                 byte[] receiveData = new byte[PacketUtilities.PACKET_SIZE];
                 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-
                 // we are looking for 1) a valid checksum 2) ack number 3) ACK flags
-
                 socket.receive(receivePacket);
                 FXVPacket finAckPacket = new FXVPacket(receiveData);
                 FXVPacketHeader finAckPacketHeader = finAckPacket.getHeader();
@@ -482,25 +524,38 @@ public class FXVSocket {
         return packets;
     }
 
-    public void updateSendIsAckedBuffer(int index) {
-        this.sendIsAcked[index] = true;
+    public PacketUtilities.SendState[] getSendBufferState() {
+        return this.sendBufferState;
     }
 
-    public boolean[] getSendIsAckedBuffer() {
-        return this.sendIsAcked;
+    public void setSendBufferState(int index, PacketUtilities.SendState value) {
+        this.sendBufferState[index] = value;
     }
 
     public int getSendWindowBase() {
         return this.sendWindowBase;
     }
 
+    public void setSendWindowBase(int value) {
+        this.sendWindowBase = value;
+    }
+
     public int getSendWindowHead() {
         return this.sendWindowHead;
+    }
+
+    public void setSendWindowHead(int value) {
+        this.sendWindowHead = value;
     }
 
     public void incrementSendWindowHead() {
         this.sendWindowHead++;
         this.sendWindowHead = this.sendWindowHead % sendBuffer.length;
+    }
+
+    public void incrementSendWindowBase() {
+        this.sendWindowBase++;
+        this.sendWindowBase = this.sendWindowBase % sendBuffer.length;
     }
 
     public static void main(String[] args) throws Exception {

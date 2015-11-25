@@ -11,6 +11,16 @@ public final class PacketUtilities {
 
     public static final int HEADER_SIZE = 24;
     public static final int PACKET_SIZE = 1000;
+    public static final int WINDOW_SIZE = 1;
+
+    public enum SendState {
+        NOT_INITIALIZED,
+        READY_TO_SEND,
+        TO_BE_SENT,
+        SENDING,
+        ACKED,
+        DONE
+    }; 
 
     /**
      * This method is responsible for computing the checksum. It is a reimplementation of
