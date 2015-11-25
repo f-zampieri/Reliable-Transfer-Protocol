@@ -5,11 +5,12 @@ public class FXVPacket {
 
 	public FXVPacket(FXVPacketHeader header) {
 		this.header = header;
-		this.payload = new byte[header.payloadLength];
+		this.payload = new byte[PacketUtilities.PACKET_SIZE 
+							  + PacketUtilities.HEADER_SIZE];
 	}
 
 	public FXVPacket(byte[] data) {
-		byte[] headerData = new byte[PacketUtilities.HEADER_SIZE];
+		byte[] headerData = new byte[PacketUtilities.PACKET_SIZE];
 		for (int i = 0; i < headerData.length; i++) {
 			headerData[i] = data[i];
 		}
@@ -43,7 +44,9 @@ public class FXVPacket {
 	}
 
 	public void setData(byte[] data) {
-		this.payload = data;
+		for(int i = 0; i < data.length; i++) {
+			this.payload[i] = data[i];
+		}
 	}
 
 	public String toString() {

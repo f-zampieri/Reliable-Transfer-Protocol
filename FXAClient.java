@@ -60,7 +60,7 @@ public class FXAClient {
 
         	if(commandComponents[0].equals("get")) {
         		byte[] commandData = command.getBytes();
-                socket.send(addPadding(commandData, COMMAND_LENGTH));
+                socket.write(addPadding(commandData, COMMAND_LENGTH));
                 byte[] fileSizeBytes = socket.receive();
         		int fileSize = Integer.parseInt(new String(removePadding(fileSizeBytes)));
         		//TODO: You have file size. Read it bitch!

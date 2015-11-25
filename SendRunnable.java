@@ -13,12 +13,7 @@ public class SendRunnable implements Runnable {
 	}
 
 	public void run() {
-		byte[] receiveData = new byte[PacketUtilities.HEADER_SIZE];
-
-        //TODO: Try and avoid the null declaration.
         byte[] fxvSendPacketBytes = null;
-
-    	DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
         synchronized(lock) {
             FXVPacket fxvSendPacket = fxvSocket.sendBuffer[index];
             fxvSendPacketBytes = fxvSendPacket.toByteArray();
@@ -36,24 +31,35 @@ public class SendRunnable implements Runnable {
         boolean isAcked = false;
         while(!isAcked) {
             synchronized(lock) {
-                PacketUtilities.SendState stateOfPacket = fxvSocket.getSendBufferState()[this.index];
+                PacketUtilities.SendState stateOfPacket 
+                    = fxvSocket.getSendBufferState()[this.index];
                 if(stateOfPacket == PacketUtilities.SendState.SENDING) {
                     DatagramSocket socket = fxvSocket.socket;
                     try {
                         socket.send(sendPacket);
                     } catch (IOException e) {}
-                } else if(stateOfPacket == PacketUtilities.SendState.ACKED) {
+                } else if (stateOfPacket == PacketUtilities.SendState.ACKED
+                        || stateOfPacket == PacketUtilities.SendState.DONE) {
                     isAcked = true;
                 } else {
                     //The code should never reach this block. 
                     System.out.println("Packet somehow in send thread in weird state");
                 }
             }
-            try {
-                Thread.sleep(500);
-            }
-            catch(InterruptedException e) {
-                isAcked = true;
+
+            //The thread sleeps for the amount of time in the timeout.
+            try { 
+                Thread.sleep(PacketUtilities.SEND_TIMEOUT);
+            } catch (InterruptedException e) {
+                //If the packet has been acked the thread completes.
+                //The send manager can create a new thread in its place.
+                synchronized(lock) {
+                    PacketUtilities.SendState stateOfPacket 
+                        = fxvSocket.getSendBufferState()[this.index];
+                    if(stateOfPacket == PacketUtilities.SendState.ACKED) {
+                        isAcked = true;
+                    }
+                }
             }
         }
 	}

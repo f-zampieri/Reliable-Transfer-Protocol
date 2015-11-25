@@ -50,7 +50,7 @@ public class FXAServer {
 
         // <COMMAND> : <FILE NAME>
         if (socket.accept()) {
-            byte[] receiveData = socket.receive(COMMAND_LENGTH);
+            byte[] receiveData = socket.read(COMMAND_LENGTH);
 
             String command = new String(removePadding(receiveData));
             String[] commandComponents = command.split(" ");
@@ -62,17 +62,17 @@ public class FXAServer {
                 //the receiver can read the file size before actually reading
                 //the file itself.
                 byte[] fileSizeData = new Long(theFile.length()).toString().getBytes();
-                socket.send(addPadding(fileSizeData, FILE_SIZE_LENGTH));
+                socket.write(addPadding(fileSizeData, FILE_SIZE_LENGTH));
                 byte[] fileData = new byte[PacketUtilities.PACKET_SIZE];
                 while (fileStream.available() > 0) {
                     fileStream.read(fileData);
                     // create packet, send that shit
-                    socket.send(fileData);
+                    socket.write(fileData);
                 }
             } else if (command.equals("post")) {
                 boolean eof = false;
                 while (!eof) {
-                    byte[] receiveFile = socket.receive(16);
+                    byte[] receiveFile = socket.read(16);
 
                 }
             }

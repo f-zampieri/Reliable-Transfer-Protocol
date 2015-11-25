@@ -16,12 +16,21 @@ public class FXVSocket {
     private int receiveWindowHead;
     private int sendWindowBase;
     private int sendWindowHead;
+
+    private int sendDataIndex;
+    private int receiveDataIndex;
+
     private int seqNumber;
     private Random random;
     private MessageDigest md;
 
     private PacketUtilities.SendState[] sendBufferState;
-    private PacketUtilities.SendState[] receiveBufferState;
+    private PacketUtilities.ReceiveState[] receiveBufferState;
+
+    public Thread sendingThread;
+    public Thread receivingThread;
+
+    public Object lock;
 
 
     //Constructor to create an FxVSocket
@@ -187,13 +196,18 @@ public class FXVSocket {
         this.sendBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.receiveBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.sendBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
-        this.receiveBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
+        this.receiveBufferState = new PacketUtilities.ReceiveState[2 * PacketUtilities.WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
         this.receiveWindowHead = 0;
         this.seqNumber += 2 + md.getDigestLength();
-
+        this.sendDataIndex = 0;
+        this.receiveDataIndex = 0;
+        this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
+        this.sendingThread.start();
+        this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
+        this.receivingThread.start();
         return true;
     }
 
@@ -322,100 +336,71 @@ public class FXVSocket {
         this.sendBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.receiveBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.sendBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
-        this.receiveBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
+        this.receiveBufferState = new PacketUtilities.ReceiveState[2 * PacketUtilities.WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
         this.receiveWindowHead = 0;
         this.seqNumber += 65;
+        this.sendDataIndex = 0; 
+        this.receiveDataIndex = 0;
+        this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
+        this.sendingThread.start();
+        this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
+        this.receivingThread.start();
         return true;
     }
 
-    // TODO: host may not send, receive, or close before accepting/listening
-    public void send(byte[] data) throws InterruptedException {
+    // TODO: host may not read, receive, or close before accepting/listening
+    // Can potentially be a blocking call if the data to be sent is greater
+    // than the buffer size.
+    public void write(byte[] data) throws InterruptedException {
 
         //Converting data into packets. 
         FXVPacket[] fxvPackets = packetize(data);
+        int numPacketsWritten = 0;
 
-        int numPacketsSent = 0;
-        //Initially load the buffer with the file data
-        for(int i = 0; i < this.sendBuffer.length; i++) {
-            if(numPacketsSent < fxvPackets.length) {
-                this.sendBuffer[i] = fxvPackets[numPacketsSent++];
-                this.sendBufferState[i] = PacketUtilities.SendState.READY_TO_SEND;
-            } else {
-                this.sendBufferState[i] = PacketUtilities.SendState.DONE;
-            }
-        }  
+        sendingThread.interrupt();
 
-        //The lock is used to control access to any variable in the socket
-        Object lock = new Object();
-        Object threadToInterruptLock = new Object();
-
-        SendManagerRunnable sendManagerRunnable = 
-                new SendManagerRunnable(this, lock, threadToInterruptLock);
-
-        Thread sendManager = new Thread(sendManagerRunnable);
-            
-        //The main thread performs the following tasks:
-        //1. Receives the acks.
-        //2. Updates the send buffers base.
-        //3. Adds new data from the application layer to the buffer if any.
-        //4. Checks if everything has been sent
-        boolean isDone = false;
-        while (isDone) {
-            byte[] receiveData = new byte[PacketUtilities.HEADER_SIZE];
-            DatagramPacket receivePacket = new DatagramPacket(receiveData,
-                                                              receiveData.length);
-            try {
-                this.socket.receive(receivePacket);
-                FXVPacket ackPacket = new FXVPacket(receiveData);
-                FXVPacketHeader ackPacketHeader = ackPacket.getHeader();
-                //Looking for 1) a valid checksum 2) ACK flags
-                boolean isValid = PacketUtilities.validateChecksum(ackPacket)
-                            && ackPacketHeader.getFlags() == 8;
-                if (isValid) {
-                    int ackNumber = ackPacketHeader.ackNumber;
-                    //Iterating through all packets in window to check which
-                    //packets sequence number corresponds to the ack number.
-                    synchronized(lock) {
-                        for (int i = sendWindowBase; i < sendWindowHead; i++) {
-                            int packetExpectedAck = sendBuffer[i].getHeader().seqNumber 
-                                            + sendBuffer[i].getHeader().payloadLength + 1;
-                            if (ackNumber == packetExpectedAck) {
-                                setSendBufferState(i, PacketUtilities.SendState.ACKED);
-                                sendManagerRunnable.setThreadToInterrupt((i - sendWindowBase));
-                                sendManager.interrupt();
-                            }
-                        }
-                        //Updates send buffer base and adds new data if any
-                        while (sendBufferState[sendWindowBase] == PacketUtilities.SendState.ACKED) {
-                            if (numPacketsSent < fxvPackets.length) {
-                                this.sendBuffer[sendWindowBase] = fxvPackets[numPacketsSent++];
-                                this.sendBufferState[sendWindowBase] = PacketUtilities.SendState.READY_TO_SEND;
-                            } else {
-                                this.sendBufferState[sendWindowBase] = PacketUtilities.SendState.DONE;
-                            }
-                            sendWindowBase++;
-                            sendWindowBase = sendWindowBase % sendBuffer.length;
-                            isDone = (sendWindowBase == sendWindowHead) 
-                                  && (sendBufferState[sendWindowBase] 
-                                                     == PacketUtilities.SendState.DONE);
-                        }
-                    }
-                }
-            } catch (SocketTimeoutException e) {
-                //TODO: Why does this happen?
-                System.out.println(e);
-            } catch (IOException e) {
-                //TODO: Why does this happen?
-                System.out.println(e);
+        //Load the buffer with the more data to be sent
+        while(numPacketsWritten < fxvPackets.length) {
+            synchronized(lock) {
+                if (sendBufferState[sendDataIndex] == PacketUtilities.SendState.NOT_INITIALIZED
+                 || sendBufferState[sendDataIndex] == PacketUtilities.SendState.DONE) {
+                    sendBuffer[sendDataIndex++] = fxvPackets[numPacketsWritten++];
+                    sendDataIndex = sendDataIndex % sendBuffer.length;
+                } 
             }
         }
-        //We reset these values for the next method just in case clean up moves
-        //these numbers arbitrarily after everything has been sent. 
-        this.sendWindowBase = 0;
-        this.sendWindowHead = 0;
+    }
+
+
+    //It can be a blocking call if not enough data in the buffer
+    public byte[] read(int numBytes) {
+        // byte[] data = new byte[numBytes];
+        // int numBytesRead = 0;
+
+        // while(numBytesRead < numBytes) {
+        //     synchronized(lock) {
+        //         if (receiveBufferState[receiveDataIndex] == PacketUtilities.ReceiveState.RECEIVED) {
+        //             receiveBufferState[receiveDataIndex] = PacketUtilities.ReceiveState.READ;
+        //             data[numBytesRead++] = receiveBuffer[receiveDataIndex++];
+        //             receiveDataIndex = receiveDataIndex % receiveBuffer.length;
+        //         }
+        //     }
+        // }
+        return null;
+    }
+    public byte[] read() {
+        //Calculate how much data there is to read.
+        int numBytes = 0;
+        synchronized(lock) {
+            while(receiveBufferState[receiveDataIndex] == PacketUtilities.ReceiveState.RECEIVED
+               && numBytes < (2 * PacketUtilities.WINDOW_SIZE)) {
+                numBytes++;
+            }
+        }
+        return this.read(numBytes);
     }
 
     public byte[] receive() {
@@ -482,11 +467,12 @@ public class FXVSocket {
         FXVPacket[] packets = new FXVPacket[data.length / PacketUtilities.PACKET_SIZE + isDivisibleResult];
         for (int i = 0; i < packets.length - isDivisibleResult; i++) {
             FXVPacketHeader header = new FXVPacketHeader();
-            // header.srcPort = (short) this.srcSocketAddress.getPort();
-            // header.dstPort = (short) this.dstSocketAddress.getPort();
+            header.srcPort = (short) this.srcSocketAddress.getPort();
+            header.dstPort = (short) this.dstSocketAddress.getPort();
             header.seqNumber = this.seqNumber;
-            // int windowSize = PacketUtilities.PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
-            // header.setWindowSize(windowSize);
+            //TODO: Have to figure out window size stuff.
+            //int windowSize = PacketUtilities.PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
+            //header.setWindowSize(windowSize);
             header.payloadLength = PacketUtilities.PACKET_SIZE;
 
             byte[] packetData = new byte[PacketUtilities.PACKET_SIZE];
@@ -500,11 +486,11 @@ public class FXVSocket {
         }
         if (data.length % PacketUtilities.PACKET_SIZE > 0) {
             FXVPacketHeader header = new FXVPacketHeader();
-            // header.srcPort = (short) this.srcSocketAddress.getPort();
-            // header.dstPort = (short) this.dstSocketAddress.getPort();
+            header.srcPort = (short) this.srcSocketAddress.getPort();
+            header.dstPort = (short) this.dstSocketAddress.getPort();
             header.seqNumber = this.seqNumber;
-            // int windowSize = PacketUtilities.PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
-            // header.setWindowSize(windowSize);
+            int windowSize = PacketUtilities.PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
+            header.setWindowSize(windowSize);
             int newPayloadLength = data.length % PacketUtilities.PACKET_SIZE;
             header.payloadLength = newPayloadLength;
 

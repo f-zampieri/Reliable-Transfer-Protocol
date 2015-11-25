@@ -9,10 +9,11 @@ import java.util.Random;
  */
 public final class PacketUtilities {
 
-    public static final int HEADER_SIZE = 24;
-    public static final int PACKET_SIZE = 1000;
-    public static final int WINDOW_SIZE = 1;
-    public static final int TOTAL_TRIES = 4;
+    public static final int HEADER_SIZE  = 24;
+    public static final int PACKET_SIZE  = 1000;
+    public static final int WINDOW_SIZE  = 1;
+    public static final int TOTAL_TRIES  = 4;
+    public static final int SEND_TIMEOUT = 500;
 
     public enum SendState {
         NOT_INITIALIZED,
@@ -21,6 +22,12 @@ public final class PacketUtilities {
         SENDING,
         ACKED,
         DONE
+    }; 
+
+    public enum ReceiveState {
+        NOT_INITIALIZED,
+        RECEIVED,
+        READ
     }; 
 
     /**
