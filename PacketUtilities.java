@@ -9,6 +9,8 @@ import java.util.Random;
  */
 public final class PacketUtilities {
 
+    public static final boolean DEBUG = true;
+
     public static final int HEADER_SIZE  = 24;
     public static final int PACKET_SIZE  = 1000;
     public static final int WINDOW_SIZE  = 1;
@@ -88,8 +90,6 @@ public final class PacketUtilities {
      * @return Whether or not there was a bit error in transmission.
      */
     public static boolean validateChecksum(FXVPacket packet) {
-        System.out.println(computeChecksum(packet));
-        System.out.println(packet.getChecksum());
         return computeChecksum(packet) == packet.getChecksum();
     }
     

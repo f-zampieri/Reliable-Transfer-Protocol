@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.Random;
 
 public class FXVSocket {
+
     public DatagramSocket socket;
     public FXVPacket[] sendBuffer;
     public FXVPacket[] receiveBuffer;
@@ -70,6 +71,9 @@ public class FXVSocket {
         //the handshake is successful.
 
         // 1. CLIENT SENDS SYN ()
+        if(PacketUtilities.DEBUG) {
+            System.out.println("Sending Syn");
+        }
         FXVPacketHeader header = new FXVPacketHeader();
         header.setSyn(true);
         header.seqNumber = this.seqNumber;
@@ -100,7 +104,6 @@ public class FXVSocket {
                 // we are looking for 1) a valid checksum 2) ack number 3) ACK+AUTH flags
                 authAckPacket = new FXVPacket(receiveData);
                 authAckPacketHeader = authAckPacket.getHeader();
-                System.out.println(authAckPacketHeader);
                 gotAck = PacketUtilities.validateChecksum(authAckPacket)
                         && authAckPacketHeader.ackNumber == seqNumber + 1
                         && authAckPacketHeader.getFlags() == 10;
@@ -114,6 +117,9 @@ public class FXVSocket {
 
                 continue;
             }
+        }
+        if(PacketUtilities.DEBUG) {
+            System.out.println("Received Auth Ack. Sending Auth Ack.");
         }
 
         md.update(authAckPacket.getData());
@@ -156,10 +162,8 @@ public class FXVSocket {
                 socket.receive(receivePacket);
                 synAckPacket = new FXVPacket(receiveData);
                 synAckPacketHeader = synAckPacket.getHeader();
-                System.out.println(synAckPacketHeader);
-
                 gotAck = PacketUtilities.validateChecksum(synAckPacket)
-                    && synAckPacketHeader.ackNumber == sendingAuthAckPacketHeader.seqNumber + sendingAuthAckPacket.getData().length + 1
+                    && synAckPacketHeader.ackNumber == sendingAuthAckPacketHeader.seqNumber + sendingAuthAckPacketHeader.payloadLength + 1
                     && synAckPacketHeader.getFlags() == 24;
             } catch (SocketTimeoutException e) {
                 // TODO: handle server dying
@@ -170,6 +174,10 @@ public class FXVSocket {
                 socket.send(sendPacket);
                 continue;
             }
+        }
+        
+        if(PacketUtilities.DEBUG) {
+            System.out.println("Received the Syn Ack. Sending last ack");
         }
         
 
@@ -193,8 +201,6 @@ public class FXVSocket {
         // TODO: check yourself
         this.srcSocketAddress = new InetSocketAddress(socket.getLocalAddress(), socket.getLocalPort());
         this.dstSocketAddress = address;
-        System.out.println(this.srcSocketAddress);
-        System.out.println(this.dstSocketAddress);
         this.sendBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.receiveBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.sendBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
@@ -206,7 +212,8 @@ public class FXVSocket {
         this.seqNumber += 2 + md.getDigestLength();
         this.sendDataIndex = 0;
         this.receiveDataIndex = 0;
-        this.expectedReceiveSeqNumber = sendingAckPacketHeader.ackNumber;
+        this.lock = new Object();
+        this.expectedReceiveSeqNumber = synAckPacketHeader.seqNumber + 1;
         this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
         this.sendingThread.start();
         this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
@@ -236,6 +243,9 @@ public class FXVSocket {
             if (PacketUtilities.validateChecksum(new FXVPacket(receiveHeader))) {
                 if (receiveHeader.getFlags() == 16) {
                     connectionSuccessful = true;
+                    if(PacketUtilities.DEBUG) {
+                        System.out.println("Syn received.");
+                    }
 
                     sendHeader = new FXVPacketHeader();
                     // 64-byte challenge string
@@ -265,7 +275,11 @@ public class FXVSocket {
                                                     receivePacket.getSocketAddress());
 
                     socket.send(sendPacket);
-                    
+
+                    if(PacketUtilities.DEBUG) {
+                        System.out.println("Sending Auth Ack. Receiving auth ack.");
+                    }
+ 
                     boolean gotAck = false;
                     receiveData = new byte[PacketUtilities.HEADER_SIZE + md.getDigestLength()];
                     receivePacket.setData(receiveData);
@@ -286,7 +300,6 @@ public class FXVSocket {
 
                             authAckPacket = new FXVPacket(receiveData);
                             authAckPacketHeader = authAckPacket.getHeader();
-                            System.out.println(authAckPacketHeader);
 
                             gotAck = PacketUtilities.validateChecksum(authAckPacket)
                                     && authAckPacketHeader.ackNumber == this.seqNumber + challengeBytes.length + 1
@@ -301,8 +314,15 @@ public class FXVSocket {
                         }
                     }
 
+
+                    if(PacketUtilities.DEBUG) {
+                        System.out.println("Received auth ack.");
+                    }
+
                     if (Arrays.equals(digest, authAckPacket.getData())) {
-                        System.out.println("we have passed the challenge");
+                        if(PacketUtilities.DEBUG) {
+                            System.out.println("Challenge successful");
+                        }
                         // now send syn+ackcket = new FXVPacket(sendHeader);
                         FXVPacketHeader synAckPacketHeader = new FXVPacketHeader();
                         synAckPacketHeader.setSyn(true);
@@ -310,7 +330,7 @@ public class FXVSocket {
                         synAckPacketHeader.srcPort = authAckPacketHeader.dstPort;
                         synAckPacketHeader.dstPort = authAckPacketHeader.srcPort;
                         synAckPacketHeader.seqNumber = authAckPacketHeader.ackNumber;
-                        synAckPacketHeader.ackNumber = authAckPacketHeader.seqNumber + authAckPacket.getData().length + 1;
+                        synAckPacketHeader.ackNumber = authAckPacketHeader.seqNumber + authAckPacketHeader.payloadLength + 1;
                         //ExpectedReceiveSeqNumber tells the receive and read method
                         //which packet to read next. This is set in connect.
                         this.expectedReceiveSeqNumber = synAckPacketHeader.ackNumber;
@@ -325,8 +345,10 @@ public class FXVSocket {
                         sendPacket = new DatagramPacket(synAckPacketBytes,
                                                         synAckPacketBytes.length,
                                                         receivePacket.getSocketAddress());
-
                         socket.send(sendPacket);
+                        if(PacketUtilities.DEBUG) {
+                            System.out.println("Sending syn ack packet.");
+                        }
                     }                    
                 }
             }
@@ -337,8 +359,6 @@ public class FXVSocket {
         // TODO: before you wreck yourself
         this.srcSocketAddress = new InetSocketAddress(socket.getLocalAddress(), socket.getLocalPort());
         this.dstSocketAddress = new InetSocketAddress(receivePacket.getAddress(), receivePacket.getPort());
-        System.out.println(this.srcSocketAddress);
-        System.out.println(this.dstSocketAddress);
         this.sendBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.receiveBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
         this.sendBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
@@ -350,6 +370,7 @@ public class FXVSocket {
         this.seqNumber += 65;
         this.sendDataIndex = 0; 
         this.receiveDataIndex = 0;
+        this.lock = new Object();
         this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
         this.sendingThread.start();
         this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
@@ -450,7 +471,6 @@ public class FXVSocket {
                 socket.receive(receivePacket);
                 FXVPacket finAckPacket = new FXVPacket(receiveData);
                 FXVPacketHeader finAckPacketHeader = finAckPacket.getHeader();
-                System.out.println(finAckPacketHeader);
 
                 gotAck = PacketUtilities.validateChecksum(finAckPacket)
                     && finAckPacketHeader.ackNumber == this.seqNumber + 1

@@ -1,4 +1,4 @@
-public class FXVPacket implements Comparable<FXVPacket>{
+public class FXVPacket implements Comparable<FXVPacket> {
 	
 	private FXVPacketHeader header;
 	private byte[] payload;
@@ -10,18 +10,13 @@ public class FXVPacket implements Comparable<FXVPacket>{
 	}
 
 	public FXVPacket(byte[] data) {
-		byte[] headerData = new byte[PacketUtilities.PACKET_SIZE];
+		byte[] headerData = new byte[PacketUtilities.HEADER_SIZE];
 		for (int i = 0; i < headerData.length; i++) {
 			headerData[i] = data[i];
 		}
 		this.header = PacketUtilities.deserialize(headerData);
 		this.payload = new byte[this.header.payloadLength];
 		// sanity check for amount of data
-		if (!(data.length == PacketUtilities.HEADER_SIZE + this.header.payloadLength)) {
-			System.out.println("Packet length does not check out"
-								+ data.length + " "
-								+ this.header.payloadLength);
-		}
 		for (int i = 0; i < this.header.payloadLength; i++) {
 			this.payload[i] = data[i + headerData.length];
 		}

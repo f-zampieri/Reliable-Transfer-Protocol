@@ -98,21 +98,21 @@ public class FXVPacketHeader {
 	}
 
 	public static void main(String[] args) {
-		FXVPacketHeader ph = new FXVPacketHeader();
-		System.out.println(ph);
-		ph.setSyn(true);
-		System.out.println(ph);
-		ph.setSyn(false);
-		ph.setAck(true);
-		ph.setRst(true);
-		System.out.println(ph);
-		ph.setWindowSize(666);
-		System.out.println(ph);
-		// ph.setWindowSize(Integer.MAX_VALUE);
-		ph.setFlags((byte) 0x0F);
-		System.out.println(ph);
-		ph.setFlags((byte) 0xFF);
-		// it appears to work :)
+		// FXVPacketHeader ph = new FXVPacketHeader();
+		// System.out.println(ph);
+		// ph.setSyn(true);
+		// System.out.println(ph);
+		// ph.setSyn(false);
+		// ph.setAck(true);
+		// ph.setRst(true);
+		// System.out.println(ph);
+		// ph.setWindowSize(666);
+		// System.out.println(ph);
+		// // ph.setWindowSize(Integer.MAX_VALUE);
+		// ph.setFlags((byte) 0x0F);
+		// System.out.println(ph);
+		// ph.setFlags((byte) 0xFF);
+		// // it appears to work :)
 	}
 
 }
