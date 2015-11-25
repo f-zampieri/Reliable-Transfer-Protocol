@@ -12,6 +12,7 @@ public final class PacketUtilities {
     public static final int HEADER_SIZE = 24;
     public static final int PACKET_SIZE = 1000;
     public static final int WINDOW_SIZE = 1;
+    public static final int TOTAL_TRIES = 4;
 
     public enum SendState {
         NOT_INITIALIZED,

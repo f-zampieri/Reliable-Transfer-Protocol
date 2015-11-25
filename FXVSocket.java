@@ -9,9 +9,6 @@ public class FXVSocket {
     public DatagramSocket socket;
     public FXVPacket[] sendBuffer;
     public FXVPacket[] receiveBuffer;
-    public final int WINDOW_SIZE = 1;
-    public final int PACKET_SIZE = 1000;
-    public final int TOTAL_TRIES = 4;
     public InetSocketAddress srcSocketAddress;
     public InetSocketAddress dstSocketAddress;
 
@@ -99,7 +96,7 @@ public class FXVSocket {
             } catch (SocketTimeoutException e) {
                 // TODO: handle server dying
                 numTries++;
-                if (numTries >= TOTAL_TRIES) {
+                if (numTries >= PacketUtilities.TOTAL_TRIES) {
                     throw new SocketException("Connection timed out.");
                 }
                 socket.send(sendPacket);
@@ -156,7 +153,7 @@ public class FXVSocket {
             } catch (SocketTimeoutException e) {
                 // TODO: handle server dying
                 numTries++;
-                if (numTries >= TOTAL_TRIES) {
+                if (numTries >= PacketUtilities.TOTAL_TRIES) {
                     throw new SocketException("Connection timed out.");
                 }
                 socket.send(sendPacket);
@@ -187,10 +184,10 @@ public class FXVSocket {
         this.dstSocketAddress = address;
         System.out.println(this.srcSocketAddress);
         System.out.println(this.dstSocketAddress);
-        this.sendBuffer = new FXVPacket[2 * WINDOW_SIZE];
-        this.receiveBuffer = new FXVPacket[2 * WINDOW_SIZE];
-        this.sendBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
-        this.receiveBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
+        this.sendBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
+        this.receiveBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
+        this.sendBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
+        this.receiveBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
@@ -279,7 +276,7 @@ public class FXVSocket {
                                     && authAckPacketHeader.getFlags() == 10;
                         } catch (SocketTimeoutException e) {
                             numTries++;
-                            if (numTries >= TOTAL_TRIES) {
+                            if (numTries >= PacketUtilities.TOTAL_TRIES) {
                                 throw new SocketException("Connection timed out.");
                             }
                             socket.send(sendPacket);
@@ -297,7 +294,7 @@ public class FXVSocket {
                         synAckPacketHeader.dstPort = authAckPacketHeader.srcPort;
                         synAckPacketHeader.seqNumber = authAckPacketHeader.ackNumber;
                         synAckPacketHeader.ackNumber = authAckPacketHeader.seqNumber + authAckPacket.getData().length + 1;
-                        synAckPacketHeader.setWindowSize(WINDOW_SIZE);
+                        synAckPacketHeader.setWindowSize(PacketUtilities.WINDOW_SIZE);
                         FXVPacket synAckPacket = new FXVPacket(synAckPacketHeader);
                         synAckPacket.setChecksum(PacketUtilities.computeChecksum(synAckPacket));
 
@@ -322,10 +319,10 @@ public class FXVSocket {
         this.dstSocketAddress = new InetSocketAddress(receivePacket.getAddress(), receivePacket.getPort());
         System.out.println(this.srcSocketAddress);
         System.out.println(this.dstSocketAddress);
-        this.sendBuffer = new FXVPacket[2 * WINDOW_SIZE];
-        this.receiveBuffer = new FXVPacket[2 * WINDOW_SIZE];
-        this.sendBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
-        this.receiveBufferState = new PacketUtilities.SendState[2 * WINDOW_SIZE];
+        this.sendBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
+        this.receiveBuffer = new FXVPacket[2 * PacketUtilities.WINDOW_SIZE];
+        this.sendBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
+        this.receiveBufferState = new PacketUtilities.SendState[2 * PacketUtilities.WINDOW_SIZE];
         this.sendWindowBase = 0;
         this.sendWindowHead = 0;
         this.receiveWindowBase = 0;
@@ -469,7 +466,7 @@ public class FXVSocket {
                     && finAckPacketHeader.getFlags() == 8;
             } catch (SocketTimeoutException e) {
                 numTries++;
-                if (numTries >= TOTAL_TRIES) {
+                if (numTries >= PacketUtilities.TOTAL_TRIES) {
                     throw new SocketException("Connection timed out.");
                 }
                 socket.send(sendPacket);
@@ -481,39 +478,39 @@ public class FXVSocket {
     }
 
     private FXVPacket[] packetize(byte[] data) {
-        int isDivisibleResult = ((data.length % PACKET_SIZE == 0) ? 0 : 1);
-        FXVPacket[] packets = new FXVPacket[data.length / PACKET_SIZE + isDivisibleResult];
+        int isDivisibleResult = ((data.length % PacketUtilities.PACKET_SIZE == 0) ? 0 : 1);
+        FXVPacket[] packets = new FXVPacket[data.length / PacketUtilities.PACKET_SIZE + isDivisibleResult];
         for (int i = 0; i < packets.length - isDivisibleResult; i++) {
             FXVPacketHeader header = new FXVPacketHeader();
             // header.srcPort = (short) this.srcSocketAddress.getPort();
             // header.dstPort = (short) this.dstSocketAddress.getPort();
             header.seqNumber = this.seqNumber;
-            // int windowSize = PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
+            // int windowSize = PacketUtilities.PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
             // header.setWindowSize(windowSize);
-            header.payloadLength = PACKET_SIZE;
+            header.payloadLength = PacketUtilities.PACKET_SIZE;
 
-            byte[] packetData = new byte[PACKET_SIZE];
-            for (int j = 0; j < PACKET_SIZE; j++) {
-                packetData[j] = data[j + (i * PACKET_SIZE)];
+            byte[] packetData = new byte[PacketUtilities.PACKET_SIZE];
+            for (int j = 0; j < PacketUtilities.PACKET_SIZE; j++) {
+                packetData[j] = data[j + (i * PacketUtilities.PACKET_SIZE)];
             }
             packets[i] = new FXVPacket(header);
             packets[i].setData(packetData);
             packets[i].setChecksum(PacketUtilities.computeChecksum(packets[i]));
-            this.seqNumber += PACKET_SIZE;
+            this.seqNumber += PacketUtilities.PACKET_SIZE;
         }
-        if (data.length % PACKET_SIZE > 0) {
+        if (data.length % PacketUtilities.PACKET_SIZE > 0) {
             FXVPacketHeader header = new FXVPacketHeader();
             // header.srcPort = (short) this.srcSocketAddress.getPort();
             // header.dstPort = (short) this.dstSocketAddress.getPort();
             header.seqNumber = this.seqNumber;
-            // int windowSize = PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
+            // int windowSize = PacketUtilities.PACKET_SIZE * (receiveBuffer.length - (receiveWindowHead - receiveWindowBase));
             // header.setWindowSize(windowSize);
-            int newPayloadLength = data.length % PACKET_SIZE;
+            int newPayloadLength = data.length % PacketUtilities.PACKET_SIZE;
             header.payloadLength = newPayloadLength;
 
             byte[] packetData = new byte[newPayloadLength];
             for (int j = 0; j < newPayloadLength; j++) {
-                packetData[j] = data[j + PACKET_SIZE * (packets.length - 1)];
+                packetData[j] = data[j + PacketUtilities.PACKET_SIZE * (packets.length - 1)];
             }
             packets[packets.length - 1] = new FXVPacket(header);
             packets[packets.length - 1].setData(packetData);
