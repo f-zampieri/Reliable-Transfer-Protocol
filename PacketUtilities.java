@@ -26,7 +26,8 @@ public final class PacketUtilities {
 
     public enum ReceiveState {
         NOT_INITIALIZED,
-        RECEIVED,
+        NOT_READY_TO_READ,
+        READY_TO_READ,
         READ
     }; 
 
@@ -239,8 +240,5 @@ public final class PacketUtilities {
         // byte[] data = {(byte) 0x00, (byte) 0x01, (byte) 0x0A, (byte) 0xEF};
         byte[] checksumData = {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF};
         System.out.println(Integer.toBinaryString(computeChecksum(checksumData)));
-
     }
-
-
 }

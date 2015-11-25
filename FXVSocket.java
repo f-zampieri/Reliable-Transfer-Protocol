@@ -20,6 +20,8 @@ public class FXVSocket {
     private int sendDataIndex;
     private int receiveDataIndex;
 
+    private int expectedReceiveSeqNumber;
+
     private int seqNumber;
     private Random random;
     private MessageDigest md;
@@ -204,6 +206,7 @@ public class FXVSocket {
         this.seqNumber += 2 + md.getDigestLength();
         this.sendDataIndex = 0;
         this.receiveDataIndex = 0;
+        this.expectedReceiveSeqNumber = sendingAckPacketHeader.ackNumber;
         this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
         this.sendingThread.start();
         this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
@@ -308,6 +311,9 @@ public class FXVSocket {
                         synAckPacketHeader.dstPort = authAckPacketHeader.srcPort;
                         synAckPacketHeader.seqNumber = authAckPacketHeader.ackNumber;
                         synAckPacketHeader.ackNumber = authAckPacketHeader.seqNumber + authAckPacket.getData().length + 1;
+                        //ExpectedReceiveSeqNumber tells the receive and read method
+                        //which packet to read next. This is set in connect.
+                        this.expectedReceiveSeqNumber = synAckPacketHeader.ackNumber;
                         synAckPacketHeader.setWindowSize(PacketUtilities.WINDOW_SIZE);
                         FXVPacket synAckPacket = new FXVPacket(synAckPacketHeader);
                         synAckPacket.setChecksum(PacketUtilities.computeChecksum(synAckPacket));
@@ -393,14 +399,14 @@ public class FXVSocket {
     }
     public byte[] read() {
         //Calculate how much data there is to read.
-        int numBytes = 0;
+        int numPackets = 0;
         synchronized(lock) {
-            while(receiveBufferState[receiveDataIndex] == PacketUtilities.ReceiveState.RECEIVED
-               && numBytes < (2 * PacketUtilities.WINDOW_SIZE)) {
-                numBytes++;
+            while(receiveBufferState[receiveDataIndex] == PacketUtilities.ReceiveState.READY_TO_READ
+               && numPackets < (2 * PacketUtilities.WINDOW_SIZE)) {
+                numPackets++;
             }
         }
-        return this.read(numBytes);
+        return null;
     }
 
     public byte[] receive() {
@@ -540,6 +546,62 @@ public class FXVSocket {
         this.sendWindowBase++;
         this.sendWindowBase = this.sendWindowBase % sendBuffer.length;
     }
+
+    public PacketUtilities.ReceiveState[] getReceiveBufferState() {
+        return this.receiveBufferState;
+    }
+
+    public void setReceiveBufferState(int index, PacketUtilities.ReceiveState value) {
+        this.receiveBufferState[index] = value;
+    }
+
+    public int getReceiveWindowBase() {
+        return this.receiveWindowBase;
+    }
+
+    public void setReceiveWindowBase(int value) {
+        this.receiveWindowBase = value;
+    }
+
+    public int getReceiveWindowHead() {
+        return this.receiveWindowHead;
+    }
+
+    public void setReceiveWindowHead(int value) {
+        this.receiveWindowHead = value;
+    }
+
+    public void incrementReceiveWindowHead() {
+        this.receiveWindowHead++;
+        this.receiveWindowHead = this.receiveWindowHead % receiveBuffer.length;
+    }
+
+    public void incrementReceiveWindowBase() {
+        this.receiveWindowBase++;
+        this.receiveWindowBase = this.receiveWindowBase % receiveBuffer.length;
+    }
+
+    public int getExpectedReceiveSeqNumber() {
+        return this.expectedReceiveSeqNumber;
+    }
+
+    public void setExpectedReceiveSeqNumber(int value) {
+        this.expectedReceiveSeqNumber = value;
+    }
+
+    public void reorderReceiveBuffer() {
+        int size = Math.abs(receiveWindowHead - receiveWindowBase);
+        FXVPacket[] tempWindow = new FXVPacket[size];
+        for(int i = 0; i < size; i++) {
+            tempWindow[i] = receiveBuffer[i + receiveWindowBase];
+        }
+        Arrays.sort(tempWindow);
+        for(int i = 0; i < size; i++) {
+            receiveBuffer[i + receiveWindowBase] = tempWindow[i];
+        }
+    }
+
+
 
     public static void main(String[] args) throws Exception {
         // byte[] allDatData = {0x0F, 0x0C, 0x08, 0x12};

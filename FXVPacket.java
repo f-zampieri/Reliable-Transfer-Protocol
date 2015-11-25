@@ -1,4 +1,4 @@
-public class FXVPacket {
+public class FXVPacket implements Comparable<FXVPacket>{
 	
 	private FXVPacketHeader header;
 	private byte[] payload;
@@ -71,4 +71,7 @@ public class FXVPacket {
 		return result;
 	}
 
+	public int compareTo(FXVPacket other) {
+		return this.getHeader().seqNumber - other.getHeader().seqNumber;
+	}
 }
