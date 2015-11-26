@@ -35,7 +35,11 @@ public class FXVPacket implements Comparable<FXVPacket> {
 	}
 
 	public byte[] getData() {
-		return payload;
+		byte[] data = new byte[header.payloadLength];
+		for(int i = 0; i < header.payloadLength; i++) {
+			data[i] = payload[i];
+		}
+		return data;
 	}
 
 	public void setData(byte[] data) {
@@ -48,8 +52,8 @@ public class FXVPacket implements Comparable<FXVPacket> {
 		StringBuilder sb = new StringBuilder();
 		sb.append(this.header.toString());
 		sb.append(" ");
-		for (byte b : this.payload) {
-			sb.append(b);
+		for (int i = 0; i < header.payloadLength; i++) {
+			sb.append(payload[i]);
 		}
 		return sb.toString();
 	}

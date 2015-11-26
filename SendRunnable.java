@@ -5,11 +5,13 @@ public class SendRunnable implements Runnable {
 	private int index;
 	private FXVSocket fxvSocket;
     private Object lock;
+    private boolean isAcked;
 
 	public SendRunnable(int i, FXVSocket fxvSocket, Object lock) {
 		this.index = i;
 		this.fxvSocket = fxvSocket;
         this.lock = lock;
+        this.isAcked = false;
 	}
 
 	public void run() {
@@ -28,14 +30,17 @@ public class SendRunnable implements Runnable {
                                         fxvSocket.dstSocketAddress);
         } catch(SocketException e) {}
 
-        boolean isAcked = false;
+        isAcked = false;
         while(!isAcked) {
+            System.out.println("Whats up? " + index);
             synchronized(lock) {
+                System.out.println(this.index);
                 PacketUtilities.SendState stateOfPacket 
                     = fxvSocket.getSendBufferState()[this.index];
                 if(stateOfPacket == PacketUtilities.SendState.SENDING) {
                     DatagramSocket socket = fxvSocket.socket;
                     try {
+                        System.out.println("Actually initiated the send process. " + index);
                         socket.send(sendPacket);
                     } catch (IOException e) {}
                 } else if (stateOfPacket == PacketUtilities.SendState.ACKED
@@ -51,6 +56,8 @@ public class SendRunnable implements Runnable {
             try { 
                 Thread.sleep(PacketUtilities.SEND_TIMEOUT);
             } catch (InterruptedException e) {
+
+            } finally {
                 //If the packet has been acked the thread completes.
                 //The send manager can create a new thread in its place.
                 synchronized(lock) {
@@ -59,6 +66,7 @@ public class SendRunnable implements Runnable {
                     if(stateOfPacket == PacketUtilities.SendState.ACKED) {
                         isAcked = true;
                     }
+                    System.out.println("Thread finished after receiving ack. " + index);
                 }
             }
         }

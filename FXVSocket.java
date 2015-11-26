@@ -186,6 +186,7 @@ public class FXVSocket {
         sendingAckPacketHeader.setAck(true);
         curAckNumber = synAckPacketHeader.seqNumber + 1;
         sendingAckPacketHeader.ackNumber = curAckNumber;
+        this.expectedReceiveSeqNumber = curAckNumber + 1;
         sendingAckPacketHeader.seqNumber = synAckPacketHeader.ackNumber;
         sendingAckPacketHeader.srcPort = (short) socket.getLocalPort();
         sendingAckPacketHeader.dstPort = (short) address.getPort();
@@ -213,7 +214,6 @@ public class FXVSocket {
         this.sendDataIndex = 0;
         this.receiveDataIndex = 0;
         this.lock = new Object();
-        this.expectedReceiveSeqNumber = synAckPacketHeader.seqNumber + 1;
         this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
         this.sendingThread.start();
         this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
@@ -314,7 +314,6 @@ public class FXVSocket {
                         }
                     }
 
-
                     if(PacketUtilities.DEBUG) {
                         System.out.println("Received auth ack.");
                     }
@@ -347,7 +346,33 @@ public class FXVSocket {
                                                         receivePacket.getSocketAddress());
                         socket.send(sendPacket);
                         if(PacketUtilities.DEBUG) {
-                            System.out.println("Sending syn ack packet.");
+                            System.out.println("Sending syn ack packet. Receiving last ack.");
+                        }
+                        while (!gotAck) {
+                            try {
+                                receiveData = new byte[PacketUtilities.HEADER_SIZE];
+                                receivePacket = new DatagramPacket(receiveData, receiveData.length);
+
+                                socket.receive(receivePacket);
+                                // we are looking for 1) a valid checksum 2) ack number 3) ACK+AUTH flags
+
+                                authAckPacket = new FXVPacket(receiveData);
+                                authAckPacketHeader = authAckPacket.getHeader();
+                                this.expectedReceiveSeqNumber = synAckPacketHeader.ackNumber + 2;
+                                gotAck = PacketUtilities.validateChecksum(authAckPacket)
+                                    && authAckPacketHeader.ackNumber == synAckPacketHeader.ackNumber + 1
+                                    && authAckPacketHeader.getFlags() == 8;
+                            } catch (SocketTimeoutException e) {
+                                numTries++;
+                                if (numTries >= PacketUtilities.TOTAL_TRIES) {
+                                    throw new SocketException("Connection timed out.");
+                                }
+                                socket.send(sendPacket);
+                                continue;
+                            }
+                        }
+                        if(PacketUtilities.DEBUG) {
+                            System.out.println("Received last ack");
                         }
                     }                    
                 }
@@ -382,7 +407,6 @@ public class FXVSocket {
     // Can potentially be a blocking call if the data to be sent is greater
     // than the buffer size.
     public void write(byte[] data) throws InterruptedException {
-
         //Converting data into packets. 
         FXVPacket[] fxvPackets = packetize(data);
         int numPacketsWritten = 0;
@@ -392,8 +416,10 @@ public class FXVSocket {
         //Load the buffer with the more data to be sent
         while(numPacketsWritten < fxvPackets.length) {
             synchronized(lock) {
-                if (sendBufferState[sendDataIndex] == PacketUtilities.SendState.NOT_INITIALIZED
-                 || sendBufferState[sendDataIndex] == PacketUtilities.SendState.DONE) {
+                if (sendBufferState[sendDataIndex] == null
+                 || sendBufferState[sendDataIndex] == PacketUtilities.SendState.ACKED) {
+                    System.out.println(fxvPackets[numPacketsWritten]);
+                    sendBufferState[sendDataIndex] = PacketUtilities.SendState.READY_TO_SEND;
                     sendBuffer[sendDataIndex++] = fxvPackets[numPacketsWritten++];
                     sendDataIndex = sendDataIndex % sendBuffer.length;
                 } 
@@ -418,16 +444,35 @@ public class FXVSocket {
         // }
         return null;
     }
+
+    //Sends back exactly one packet
     public byte[] read() {
-        //Calculate how much data there is to read.
         int numPackets = 0;
-        synchronized(lock) {
-            while(receiveBufferState[receiveDataIndex] == PacketUtilities.ReceiveState.READY_TO_READ
-               && numPackets < (2 * PacketUtilities.WINDOW_SIZE)) {
-                numPackets++;
+        while(numPackets == 0) {
+            synchronized(lock) {
+                if ((receiveBufferState[receiveDataIndex] != null)
+                    && (receiveBufferState[receiveDataIndex] == PacketUtilities.ReceiveState.READY_TO_READ)) {
+                    numPackets++;
+                }   
             }
         }
-        return null;
+        byte[] data = new byte[0];
+        synchronized(lock) {
+            data = concat(data, receiveBuffer[receiveDataIndex].getData());
+            receiveBufferState[receiveDataIndex] = PacketUtilities.ReceiveState.READ;
+            receiveDataIndex++;
+            receiveDataIndex = receiveDataIndex % receiveBuffer.length;
+        }
+        return data;
+    }
+
+    private byte[] concat(byte[] a, byte[] b) {
+        int aLen = a.length;
+        int bLen = b.length;
+        byte[] c= new byte[aLen+bLen];
+        System.arraycopy(a, 0, c, 0, aLen);
+        System.arraycopy(b, 0, c, aLen, bLen);
+        return c;
     }
 
     public byte[] receive() {

@@ -26,7 +26,7 @@ public class SendManagerRunnable implements Runnable {
     			windowBase = fxv.getSendWindowBase();
     			windowHead = fxv.getSendWindowHead();
     		}
-		        //If the base - head is less than the window size, we can send
+		    //If the base - head is less than the window size, we can send
 	        //more packets through the window. Base will move due to receive
 	        //method.
     		while(Math.abs(windowBase - windowHead) 
@@ -43,10 +43,12 @@ public class SendManagerRunnable implements Runnable {
         		                    	   PacketUtilities.SendState.SENDING);
             			sendThreads[threadIndex] = new Thread(
 			           		new SendRunnable(windowHead++, fxv, lock));
+                        System.out.println("Staring thread " + threadIndex);
+                        sendThreads[threadIndex++].start();
 	        			windowHead = windowHead % fxv.sendBuffer.length;
         				threadIndex = threadIndex % PacketUtilities.WINDOW_SIZE;
         				fxv.setSendWindowHead(windowHead);
-							//If no more data to send and all the slave sending threads
+						//If no more data to send and all the slave sending threads
         				//are done sending then we can sleep this thread.
         				//The send manager is notified when there is no data from
         				//the read method.

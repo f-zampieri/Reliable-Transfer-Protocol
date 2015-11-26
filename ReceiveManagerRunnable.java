@@ -18,9 +18,7 @@ public class ReceiveManagerRunnable implements Runnable {
             DatagramPacket receivePacket = new DatagramPacket(receiveData,
                                                               receiveData.length);
             try {
-                synchronized(lock) {
-                    fxv.socket.receive(receivePacket);
-                }
+                fxv.socket.receive(receivePacket);
                 FXVPacket fxvReceivePacket = new FXVPacket(receiveData);
                 FXVPacketHeader fxvReceivePacketHeader = fxvReceivePacket.getHeader();
 
@@ -40,14 +38,19 @@ public class ReceiveManagerRunnable implements Runnable {
                         //Iterating through all packets in window to check which
                         //packets sequence number corresponds to the ack number.
                         synchronized(lock) {
-                            for (int i = fxv.getSendWindowBase(); i < fxv.getSendWindowHead(); i++) {
-                                int packetExpectedAck = fxv.sendBuffer[i].getHeader().seqNumber 
-                                                      + fxv.sendBuffer[i].getHeader().payloadLength + 1;
+                            int wb = fxv.getSendWindowBase();
+                            int wh = fxv.getSendWindowHead();
+                            while(wb != wh) {
+                                int packetExpectedAck = fxv.sendBuffer[wb].getHeader().seqNumber 
+                                                      + fxv.sendBuffer[wb].getHeader().payloadLength + 1;
+                                System.out.println("ACK EQUALITY" + packetExpectedAck + " " + ackNumber);
                                 if (ackNumber == packetExpectedAck) {
-                                    fxv.setSendBufferState(i, PacketUtilities.SendState.ACKED);
+                                    System.out.println("AckedPacket " + wb);
+                                    fxv.setSendBufferState(wb, PacketUtilities.SendState.ACKED);
                                 }
+                                wb++;
+                                wb = wb % (2 * PacketUtilities.WINDOW_SIZE);
                             }
-                            
                         }
                         //Moves the base if the first element in window is acked
                         while (fxv.getSendBufferState()[fxv.getSendWindowBase()]
@@ -68,23 +71,29 @@ public class ReceiveManagerRunnable implements Runnable {
                         byte[] sendingAckPacketBytes = sendingAckPacket.toByteArray();
                         DatagramPacket sendPacket = new DatagramPacket(sendingAckPacketBytes,
                                         sendingAckPacketBytes.length,
-                                        receivePacket.getSocketAddress());
+                                        fxv.dstSocketAddress);
+                        synchronized(lock) {
+                            fxv.socket.send(sendPacket);
+                        }
+                        System.out.println("Sent the ack back." + sendingAckPacketHeader.ackNumber);
                         //This means that there is some data to be processed.
                         if (fxvReceivePacketHeader.payloadLength > 0) {
                             synchronized(lock) {
                                 int receiveHead = fxv.getReceiveWindowHead();
+                                //If there is space in the receive buffer you can put stuff in
                                 if (Math.abs(receiveHead - fxv.getReceiveWindowBase()) < PacketUtilities.WINDOW_SIZE) {
                                     if ((fxv.getReceiveBufferState()[receiveHead] == PacketUtilities.ReceiveState.READ)
-                                      ||(fxv.getReceiveBufferState()[receiveHead] == PacketUtilities.ReceiveState.NOT_INITIALIZED)) {
+                                      ||(fxv.getReceiveBufferState()[receiveHead] == null)) {
                                         fxv.receiveBuffer[receiveHead] = fxvReceivePacket;
                                         fxv.getReceiveBufferState()[receiveHead] = PacketUtilities.ReceiveState.NOT_READY_TO_READ;
                                         fxv.incrementReceiveWindowHead();
                                         fxv.reorderReceiveBuffer();
                                     }
                                 }
-
-                                while(fxv.receiveBuffer[fxv.getReceiveWindowBase()].getHeader().seqNumber 
+                                while((fxv.receiveBuffer[fxv.getReceiveWindowBase()] != null)
+                                    && fxv.receiveBuffer[fxv.getReceiveWindowBase()].getHeader().seqNumber 
                                     == fxv.getExpectedReceiveSeqNumber()) {
+                                    System.out.println("Found a match so incrementing receive window base");
                                     int newExpSeqNum = fxv.getExpectedReceiveSeqNumber() 
                                                      + fxv.receiveBuffer[fxv.getReceiveWindowBase()].getHeader().payloadLength; 
                                     fxv.setExpectedReceiveSeqNumber(newExpSeqNum);
