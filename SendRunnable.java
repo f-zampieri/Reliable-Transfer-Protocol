@@ -24,11 +24,10 @@ public class SendRunnable implements Runnable {
         //Its safe to access dstSocketAddress outside the lock because the value
         //is never changed after the connection is established. 
         DatagramPacket sendPacket = null;
-        try {
-            sendPacket = new DatagramPacket(fxvSendPacketBytes,
+        
+        sendPacket = new DatagramPacket(fxvSendPacketBytes,
                                         fxvSendPacketBytes.length,
                                         fxvSocket.dstSocketAddress);
-        } catch(SocketException e) {}
 
         isAcked = false;
         while(!isAcked) {

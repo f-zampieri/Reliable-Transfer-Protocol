@@ -48,32 +48,37 @@ public class FXAServer {
 
         FXVSocket socket = new FXVSocket(portNumber);
 
-        // <COMMAND> : <FILE NAME>
-        if (socket.accept()) {
-            byte[] receiveData = socket.read(COMMAND_LENGTH);
+        // <COMMAND>:<FILE NAME>
+        while (true) {
+            if (socket.accept()) {
+                System.out.println("Connection opened.");
+                // byte[] receiveData = socket.read(COMMAND_LENGTH);
+                byte[] receiveData = socket.read();
+                System.out.println(receiveData == null);
 
-            String command = new String(removePadding(receiveData));
-            String[] commandComponents = command.split(" ");
-            if (commandComponents[0].equals("get")) {
-                File theFile = new File(commandComponents[1]);
-                FileInputStream fileStream = new FileInputStream(theFile);
-                //Assumed that the file size is not greater than 32
-                //We send a fileSize of 32 bytes as a standard size so that
-                //the receiver can read the file size before actually reading
-                //the file itself.
-                byte[] fileSizeData = new Long(theFile.length()).toString().getBytes();
-                socket.write(addPadding(fileSizeData, FILE_SIZE_LENGTH));
-                byte[] fileData = new byte[PacketUtilities.PACKET_SIZE];
-                while (fileStream.available() > 0) {
-                    fileStream.read(fileData);
-                    // create packet, send that shit
-                    socket.write(fileData);
-                }
-            } else if (command.equals("post")) {
-                boolean eof = false;
-                while (!eof) {
-                    byte[] receiveFile = socket.read(16);
+                String command = new String(removePadding(receiveData));
+                String[] commandComponents = command.split(":");
+                if (commandComponents[0].equals("get")) {
+                    File theFile = new File(commandComponents[1]);
+                    FileInputStream fileStream = new FileInputStream(theFile);
+                    //Assumed that the file size is not greater than 32
+                    //We send a fileSize of 32 bytes as a standard size so that
+                    //the receiver can read the file size before actually reading
+                    //the file itself.
+                    byte[] fileSizeData = new Long(theFile.length()).toString().getBytes();
+                    socket.write(addPadding(fileSizeData, FILE_SIZE_LENGTH));
+                    byte[] fileData = new byte[PacketUtilities.PACKET_SIZE];
+                    while (fileStream.available() > 0) {
+                        fileStream.read(fileData);
+                        // create packet, send that shit
+                        socket.write(fileData);
+                    }
+                } else if (command.equals("post")) {
+                    boolean eof = false;
+                    while (!eof) {
+                        byte[] receiveFile = socket.read(16);
 
+                    }
                 }
             }
         }

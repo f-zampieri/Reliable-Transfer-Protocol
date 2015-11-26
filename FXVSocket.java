@@ -13,6 +13,8 @@ public class FXVSocket {
     public InetSocketAddress srcSocketAddress;
     public InetSocketAddress dstSocketAddress;
 
+    private boolean isConnected;
+
     private int receiveWindowBase;
     private int receiveWindowHead;
     private int sendWindowBase;
@@ -35,13 +37,12 @@ public class FXVSocket {
 
     public Object lock;
 
-
-    //Constructor to create an FxVSocket
     public FXVSocket() throws SocketException, NoSuchAlgorithmException {
         this.socket = new DatagramSocket();
         this.random = new Random();
         this.seqNumber = random.nextInt();
         this.md = MessageDigest.getInstance("MD5");
+        this.isConnected = false;
     }
 
     public FXVSocket(int portNumber) throws SocketException, NoSuchAlgorithmException {
@@ -49,6 +50,7 @@ public class FXVSocket {
         this.random = new Random();
         this.seqNumber = random.nextInt();
         this.md = MessageDigest.getInstance("MD5");
+        this.isConnected = false;
     }
 
     public void bind(InetSocketAddress addr) throws SocketException {
@@ -65,6 +67,9 @@ public class FXVSocket {
 
     // TODO: handle exception 
     public boolean connect(InetSocketAddress address) throws IOException {
+        if (this.isConnected) {
+            throw new RuntimeException("Socket already connected.");
+        }
         socket.connect(address);
         //Need to perform the 4 way handshake here
         //and allocate resources i.e. the buffer if
@@ -214,6 +219,8 @@ public class FXVSocket {
         this.sendDataIndex = 0;
         this.receiveDataIndex = 0;
         this.lock = new Object();
+        this.expectedReceiveSeqNumber = synAckPacketHeader.seqNumber + 1;
+        this.isConnected = true;
         this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
         this.sendingThread.start();
         this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
@@ -237,6 +244,7 @@ public class FXVSocket {
         while (!connectionSuccessful) {
             receiveData = new byte[PacketUtilities.HEADER_SIZE];
             receivePacket = new DatagramPacket(receiveData, PacketUtilities.HEADER_SIZE);
+            System.out.println("made it here");
             socket.receive(receivePacket);
 
             receiveHeader = PacketUtilities.deserialize(receiveData);
@@ -396,6 +404,7 @@ public class FXVSocket {
         this.sendDataIndex = 0; 
         this.receiveDataIndex = 0;
         this.lock = new Object();
+        this.isConnected = true;
         this.sendingThread = new Thread(new SendManagerRunnable(this, lock));
         this.sendingThread.start();
         this.receivingThread = new Thread(new ReceiveManagerRunnable(this, lock));
@@ -407,6 +416,9 @@ public class FXVSocket {
     // Can potentially be a blocking call if the data to be sent is greater
     // than the buffer size.
     public void write(byte[] data) throws InterruptedException {
+        if (!this.isConnected) {
+            throw new RuntimeException("Must be connected before writing.");
+        }
         //Converting data into packets. 
         FXVPacket[] fxvPackets = packetize(data);
         int numPacketsWritten = 0;
@@ -430,6 +442,9 @@ public class FXVSocket {
 
     //It can be a blocking call if not enough data in the buffer
     public byte[] read(int numBytes) {
+        if (!this.isConnected) {
+            throw new RuntimeException("Must be connected before reading.");
+        }
         // byte[] data = new byte[numBytes];
         // int numBytesRead = 0;
 
@@ -447,6 +462,10 @@ public class FXVSocket {
 
     //Sends back exactly one packet
     public byte[] read() {
+        if (!this.isConnected) {
+            throw new RuntimeException("Must be connected before reading.");
+        }
+        //Calculate how much data there is to read.
         int numPackets = 0;
         while(numPackets == 0) {
             synchronized(lock) {
@@ -490,6 +509,9 @@ public class FXVSocket {
 
 
     public void close() throws IOException {
+        if (!this.isConnected) {
+            throw new RuntimeException("Must be connected before closing.");
+        }
         while (sendWindowBase - sendWindowHead > 0);
 
         FXVPacketHeader fxvFinPacketHeader = new FXVPacketHeader();
@@ -529,6 +551,7 @@ public class FXVSocket {
                 continue;
             }
         }
+        this.isConnected = false;
 
         this.socket.close();
     }
